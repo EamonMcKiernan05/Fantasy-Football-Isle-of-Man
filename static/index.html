@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fantasy Football Isle of Man</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">
+            <span class="nav-logo">⚽</span>
+            <span class="nav-title">Fantasy Football Isle of Man</span>
+        </div>
+        <div class="nav-links">
+            <a href="#" class="nav-link active" data-page="home">Home</a>
+            <a href="#" class="nav-link" data-page="teams">Teams</a>
+            <a href="#" class="nav-link" data-page="my-team">My Team</a>
+            <a href="#" class="nav-link" data-page="leaderboard">Leaderboard</a>
+            <a href="#" class="nav-link" data-page="gameweeks">Gameweeks</a>
+            <a href="#" class="nav-link" data-page="register" id="register-link">Register</a>
+        </div>
+        <div class="nav-user" id="nav-user" style="display:none;">
+            <span id="nav-username"></span>
+            <button class="btn btn-sm btn-secondary" onclick="logout()">Logout</button>
+        </div>
+    </nav>
+
+    <main class="container">
+        <!-- HOME PAGE -->
+        <div id="page-home" class="page active">
+            <div class="hero">
+                <h1>Fantasy Football Isle of Man</h1>
+                <p class="hero-subtitle">FPL-style fantasy football for Isle of Man Senior Men's Leagues</p>
+                <div class="hero-actions">
+                    <button class="btn btn-primary btn-lg" onclick="showPage('register')">Get Started</button>
+                    <button class="btn btn-secondary btn-lg" onclick="showPage('teams')">Browse Teams</button>
+                </div>
+            </div>
+            
+            <div class="info-grid">
+                <div class="info-card">
+                    <h3>🏟️ 4 Divisions</h3>
+                    <p>Canada Life Premier League, Division 2, Combination 1 & 2</p>
+                </div>
+                <div class="info-card">
+                    <h3>📅 Weekly Deadlines</h3>
+                    <p>Team deadline every Saturday at 11:00 AM</p>
+                </div>
+                <div class="info-card">
+                    <h3>⭐ Bonus Points</h3>
+                    <p>FPL-style bonus points calculated at 9:00 PM Saturday</p>
+                </div>
+                <div class="info-card">
+                    <h3>👑 Captain</h3>
+                    <p>Choose a captain each week for 2x points</p>
+                </div>
+            </div>
+            
+            <div class="scoring-section">
+                <h2>Scoring Rules (FPL-Style)</h2>
+                <div class="scoring-grid">
+                    <div class="scoring-card">
+                        <h4>Match Result</h4>
+                        <div class="scoring-item"><span>Win</span> <span class="positive">+6</span></div>
+                        <div class="scoring-item"><span>Draw</span> <span class="positive">+2</span></div>
+                        <div class="scoring-item"><span>Loss</span> <span class="negative">0</span></div>
+                        <div class="scoring-item"><span>Played</span> <span class="positive">+2</span></div>
+                    </div>
+                    <div class="scoring-card">
+                        <h4>Goals</h4>
+                        <div class="scoring-item"><span>Goal Scored</span> <span class="positive">+2</span></div>
+                        <div class="scoring-item"><span>Goal Conceded</span> <span class="negative">-1</span></div>
+                        <div class="scoring-item"><span>Clean Sheet</span> <span class="positive">+4</span></div>
+                        <div class="scoring-item"><span>GD Bonus (5+)</span> <span class="positive">+1</span></div>
+                    </div>
+                    <div class="scoring-card">
+                        <h4>Special</h4>
+                        <div class="scoring-item"><span>Captain</span> <span class="positive">2x points</span></div>
+                        <div class="scoring-item"><span>Bonus Points</span> <span class="positive">1-3</span></div>
+                        <div class="scoring-item"><span>Transfers</span> <span class="info">Free per week</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TEAMS PAGE -->
+        <div id="page-teams" class="page">
+            <h2>IOM Senior Men's Leagues</h2>
+            <button class="btn btn-primary" onclick="refreshTeams()">🔄 Refresh from API</button>
+            <div id="teams-container" class="divisions-container"></div>
+        </div>
+
+        <!-- MY TEAM PAGE -->
+        <div id="page-my-team" class="page">
+            <h2>My Fantasy Team</h2>
+            <div id="my-team-container"></div>
+        </div>
+
+        <!-- LEADERBOARD PAGE -->
+        <div id="page-leaderboard" class="page">
+            <h2>Leaderboard</h2>
+            <div id="leaderboard-container"></div>
+        </div>
+
+        <!-- GAMEWEEKS PAGE -->
+        <div id="page-gameweeks" class="page">
+            <h2>Gameweeks</h2>
+            <button class="btn btn-primary" onclick="syncGameweeks()">🔄 Sync Fixtures</button>
+            <div id="gameweeks-container"></div>
+        </div>
+
+        <!-- REGISTER PAGE -->
+        <div id="page-register" class="page">
+            <div class="auth-container">
+                <div id="register-form" class="auth-form">
+                    <h2>Register</h2>
+                    <form onsubmit="handleRegister(event)">
+                        <div class="form-group">
+                            <label>Username</label>
+                            <input type="text" id="reg-username" required minlength="3">
+                        </div>
+                        <div class="form-group">
+                            <label>Email</label>
+                            <input type="email" id="reg-email" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Password</label>
+                            <input type="password" id="reg-password" required minlength="6">
+                        </div>
+                        <div class="form-group">
+                            <label>Team Name</label>
+                            <input type="text" id="reg-team-name" placeholder="My FC" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-block">Create Account & Team</button>
+                    </form>
+                    <p class="auth-switch">Already have an account? <a href="#" onclick="showLogin()">Login</a></p>
+                </div>
+                
+                <div id="login-form" class="auth-form" style="display:none;">
+                    <h2>Login</h2>
+                    <form onsubmit="handleLogin(event)">
+                        <div class="form-group">
+                            <label>Username</label>
+                            <input type="text" id="login-username" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Password</label>
+                            <input type="password" id="login-password" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-block">Login</button>
+                    </form>
+                    <p class="auth-switch">Don't have an account? <a href="#" onclick="showRegister()">Register</a></p>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <p>Fantasy Football Isle of Man &copy; 2026 | Powered by FullTime API</p>
+    </footer>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
