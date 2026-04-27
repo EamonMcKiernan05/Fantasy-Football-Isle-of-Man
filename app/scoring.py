@@ -364,3 +364,148 @@ MIN_STARTING = {"GK": 1, "DEF": 3, "MID": 1, "FWD": 1}
 MAX_STARTING = {"GK": 1, "DEF": 5, "MID": 5, "FWD": 3}
 TOTAL_STARTING = 11
 TOTAL_SQUAD = 15
+
+# Valid formations (DEF-MID-FWD)
+VALID_FORMATIONS = [
+    {"name": "3-4-3", "def": 3, "mid": 4, "fwd": 3},
+    {"name": "3-5-2", "def": 3, "mid": 5, "fwd": 2},
+    {"name": "4-3-3", "def": 4, "mid": 3, "fwd": 3},
+    {"name": "4-4-2", "def": 4, "mid": 4, "fwd": 2},
+    {"name": "4-5-1", "def": 4, "mid": 5, "fwd": 1},
+    {"name": "5-3-2", "def": 5, "mid": 3, "fwd": 2},
+    {"name": "5-4-1", "def": 5, "mid": 4, "fwd": 1},
+]
+
+
+def validate_formation(formation_name: str) -> dict | None:
+    """Validate a formation string like '4-3-3'."""
+    for f in VALID_FORMATIONS:
+        if f["name"] == formation_name:
+            return f
+    return None
+
+
+def validate_starting_xi(squad: list[dict], formation: dict) -> bool:
+    """Validate that a starting XI matches a formation.
+
+    Args:
+        squad: List of squad players with 'is_starting', 'player.position'
+        formation: Dict with 'def', 'mid', 'fwd' counts.
+
+    Returns:
+        True if valid.
+    """
+    starters = [sp for sp in squad if sp.get("is_starting")]
+    gk_count = sum(1 for sp in starters if sp["player"]["position"] == "GK")
+    def_count = sum(1 for sp in starters if sp["player"]["position"] == "DEF")
+    mid_count = sum(1 for sp in starters if sp["player"]["position"] == "MID")
+    fwd_count = sum(1 for sp in starters if sp["player"]["position"] == "FWD")
+
+    return (
+        gk_count == 1
+        and def_count == formation["def"]
+        and mid_count == formation["mid"]
+        and fwd_count == formation["fwd"]
+        and len(starters) == 11
+    )
+
+
+def auto_sub_squad(
+    squad: list[dict],
+    non_playing_ids: list[int],
+    formation: dict,
+) -> list[dict]:
+    """FPL-style auto-sub: replace non-playing starters with bench players.
+
+    Rules:
+    - Sub the lowest-positioned non-playing starter first (FWD > MID > DEF > GK)
+    - Sub in the highest-positioned bench player (GK < DEF < MID < FWD)
+    - Respect position constraints: don't put a FWD in DEF slot
+    - GK can only be replaced by a GK
+    - DEF/MID can flex (DEF out -> MID in, MID out -> DEF in)
+
+    Args:
+        squad: Full squad of 15 with is_starting flag.
+        non_playing_ids: Player IDs who didn't play (injured/DNP).
+        formation: Formation dict with def/mid/fwd counts.
+
+    Returns:
+        Updated squad list with is_starting flags modified.
+    """
+    POSITION_PRIORITY = {"FWD": 4, "MID": 3, "DEF": 2, "GK": 1}
+
+    # Find non-playing starters, sort by position priority (sub lowest position first)
+    non_playing_starters = [
+        sp for sp in squad
+        if sp.get("is_starting") and sp["player_id"] in non_playing_ids
+    ]
+    non_playing_starters.sort(key=lambda sp: POSITION_PRIORITY.get(sp["player"]["position"], 0), reverse=True)
+
+    # Available bench players, sort by position priority (sub in highest position first)
+    bench = [sp for sp in squad if not sp.get("is_starting")]
+    bench.sort(key=lambda sp: POSITION_PRIORITY.get(sp["player"]["position"], 0), reverse=True)
+
+    bench_idx = 0
+    for starter in non_playing_starters:
+        starter_pos = starter["player"]["position"]
+
+        # Find a suitable replacement from bench
+        replacement = None
+        used_bench = []
+
+        for i, bench_player in enumerate(bench):
+            if bench_player["player_id"] in non_playing_ids:
+                continue
+            bench_pos = bench_player["player"]["position"]
+
+            # GK must be replaced by GK
+            if starter_pos == "GK":
+                if bench_pos == "GK":
+                    replacement = bench_player
+                    used_bench.append(i)
+                    break
+                continue
+
+            # Direct position match
+            if bench_pos == starter_pos:
+                replacement = bench_player
+                used_bench.append(i)
+                break
+
+            # Flex: DEF <-> MID can swap
+            if starter_pos in ("DEF", "MID") and bench_pos in ("DEF", "MID"):
+                replacement = bench_player
+                used_bench.append(i)
+                break
+
+        if replacement:
+            starter["is_starting"] = False
+            starter["was_autosubbed"] = True
+            replacement["is_starting"] = True
+            replacement["was_autosubbed"] = True
+
+    return squad
+
+
+def calculate_free_transfers(
+    current_free: int,
+    transfers_made: int,
+    max_free: int = 2,
+    is_wildcard: bool = False,
+) -> int:
+    """Calculate free transfers after a gameweek.
+
+    FPL rules:
+    - Get 1 free transfer per gameweek (plus rollover, max 2)
+    - Wildcard resets to 1 (or 2 if already had rollover)
+
+    Returns:
+        New free transfer count.
+    """
+    if is_wildcard:
+        return max_free  # Reset to max on wildcard
+
+    used = transfers_made
+    remaining = max(0, current_free - used)
+    # Add 1 for the next gameweek, cap at max_free
+    return min(max_free, remaining + 1)

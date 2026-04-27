@@ -3,10 +3,11 @@
 // State
 const state = {
     user: JSON.parse(localStorage.getItem('ff_iom_user') || 'null'),
-    teams: [],
-    divisions: [],
-    gameweeks: [],
+    team: null,
+    gameweek: null,
     leaderboard: [],
+    leagues: [],
+    transferPlayerOut: null,
 };
 
 // API helpers
@@ -15,7 +16,7 @@ async function api(endpoint, options = {}) {
     const defaults = {
         headers: { 'Content-Type': 'application/json' },
     };
-    
+
     const resp = await fetch(url, { ...defaults, ...options });
     if (!resp.ok) {
         const err = await resp.json().catch(() => ({ detail: 'Request failed' }));
@@ -28,23 +29,24 @@ async function api(endpoint, options = {}) {
 function showPage(page) {
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
-    
+
     const target = document.getElementById(`page-${page}`);
     if (target) target.classList.add('active');
-    
+
     const link = document.querySelector(`.nav-link[data-page="${page}"]`);
     if (link) link.classList.add('active');
-    
-    // Load page data
+
     switch(page) {
-        case 'teams': loadTeams(); break;
+        case 'home': loadHome(); break;
         case 'my-team': loadMyTeam(); break;
-        case 'leaderboard': loadLeaderboard(); break;
+        case 'transfers': loadTransfers(); break;
+        case 'players': loadPlayers(); break;
         case 'gameweeks': loadGameweeks(); break;
+        case 'leaderboard': loadLeaderboard(); break;
+        case 'leagues': loadLeagues(); break;
     }
 }
 
-// Nav link clicks
 document.querySelectorAll('.nav-link').forEach(link => {
     link.addEventListener('click', (e) => {
         e.preventDefault();
@@ -52,49 +54,41 @@ document.querySelectorAll('.nav-link').forEach(link => {
     });
 });
 
-// Toast notifications
+// Toast
 function showToast(message, type = 'success') {
-    const container = document.getElementById('toast-container') || (() => {
-        const div = document.createElement('div');
-        div.id = 'toast-container';
-        div.className = 'toast-container';
-        document.body.appendChild(div);
-        return div;
-    })();
-    
+    const container = document.getElementById('toast-container');
+    if (!container) return;
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
     toast.textContent = message;
     container.appendChild(toast);
-    
     setTimeout(() => toast.remove(), 3000);
 }
 
 // Auth
 async function handleRegister(e) {
     e.preventDefault();
-    
     const username = document.getElementById('reg-username').value;
     const email = document.getElementById('reg-email').value;
     const password = document.getElementById('reg-password').value;
     const teamName = document.getElementById('reg-team-name').value;
-    
+
     try {
         const user = await api('/api/users/register', {
             method: 'POST',
             body: JSON.stringify({ username, email, password }),
         });
-        
-        // Create fantasy team
+
         await api(`/api/users/${user.id}/team/create`, {
             method: 'POST',
             body: JSON.stringify({ team_name: teamName }),
         });
-        
+
         state.user = user;
         localStorage.setItem('ff_iom_user', JSON.stringify(user));
+        localStorage.setItem('ff_iom_pass', password);
         updateNav();
-        showToast(`Welcome ${username}! Your team "${teamName}" has been created.`);
+        showToast(`Welcome ${username}! Team "${teamName}" created.`);
         showPage('my-team');
     } catch (err) {
         showToast(err.message, 'error');
@@ -103,375 +97,585 @@ async function handleRegister(e) {
 
 async function handleLogin(e) {
     e.preventDefault();
-    
     const username = document.getElementById('login-username').value;
     const password = document.getElementById('login-password').value;
-    
-    // Simple login - check against stored users
-    const stored = JSON.parse(localStorage.getItem('ff_iom_users') || '[]');
-    const user = stored.find(u => u.username === username && u.password === password);
-    
-    if (user) {
-        state.user = { id: user.id, username: user.username, email: user.email };
-        localStorage.setItem('ff_iom_user', JSON.stringify(state.user));
+
+    try {
+        const user = await api('/api/users/login', {
+            method: 'POST',
+            body: new URLSearchParams({ username, password }),
+        });
+
+        state.user = user;
+        localStorage.setItem('ff_iom_user', JSON.stringify(user));
         updateNav();
         showToast(`Welcome back ${username}!`);
         showPage('my-team');
-    } else {
+    } catch (err) {
         showToast('Invalid credentials', 'error');
     }
 }
 
 function logout() {
     state.user = null;
+    state.team = null;
     localStorage.removeItem('ff_iom_user');
     updateNav();
     showPage('home');
-    showToast('Logged out');
 }
 
 function updateNav() {
     const navUser = document.getElementById('nav-user');
-    const registerLink = document.getElementById('register-link');
-    
+    const navAuth = document.getElementById('nav-auth');
+
     if (state.user) {
         navUser.style.display = 'flex';
+        navAuth.style.display = 'none';
         document.getElementById('nav-username').textContent = state.user.username;
-        registerLink.style.display = 'none';
     } else {
         navUser.style.display = 'none';
-        registerLink.style.display = '';
+        navAuth.style.display = 'flex';
     }
 }
 
-function showLogin() {
-    document.getElementById('register-form').style.display = 'none';
-    document.getElementById('login-form').style.display = 'block';
-}
+// HOME
+async function loadHome() {
+    const banner = document.getElementById('gw-banner');
+    if (!banner) return;
 
-function showRegister() {
-    document.getElementById('register-form').style.display = 'block';
-    document.getElementById('login-form').style.display = 'none';
-}
-
-// Teams
-async function loadTeams() {
-    const container = document.getElementById('teams-container');
-    container.innerHTML = '<div class="loading">Loading teams...</div>';
-    
     try {
-        const divisions = await api('/api/teams/divisions');
-        state.divisions = divisions;
-        
-        if (!divisions.length) {
-            container.innerHTML = '<p>No teams loaded yet. Click "Refresh from API" to fetch.</p>';
+        const data = await api('/api/gameweeks/current');
+        if (data.gameweek) {
+            const gw = data.gameweek;
+            const deadline = new Date(gw.deadline).toLocaleString();
+            banner.innerHTML = `
+                <div>
+                    <h3>Gameweek ${gw.number}</h3>
+                    <p>${gw.fixtures ? gw.fixtures.length : 0} fixtures</p>
+                </div>
+                <div class="gw-deadline">
+                    Deadline: ${deadline}
+                    ${gw.closed ? '<span class="status-closed" style="padding:0.3rem 0.75rem;border-radius:4px;">Closed</span>' : '<span class="status-active" style="padding:0.3rem 0.75rem;border-radius:4px;">Open</span>'}
+                </div>
+            `;
+        } else {
+            banner.innerHTML = '<p>No active gameweek. Sync fixtures to start.</p>';
+        }
+    } catch (err) {
+        banner.innerHTML = '<p>Could not load gameweek data.</p>';
+    }
+}
+
+// MY TEAM
+async function loadMyTeam() {
+    if (!state.user) {
+        showToast('Please login first', 'error');
+        showPage('login');
+        return;
+    }
+
+    try {
+        state.team = await api(`/api/users/${state.user.id}/team`);
+        renderMyTeam();
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+}
+
+function renderMyTeam() {
+    const team = state.team;
+    if (!team) return;
+
+    document.getElementById('team-name').textContent = team.name;
+    document.getElementById('team-points').textContent = team.total_points;
+    document.getElementById('team-budget').textContent = team.budget_remaining.toFixed(1);
+    document.getElementById('team-transfers').textContent = team.free_transfers;
+
+    // Nav points
+    document.getElementById('nav-points').textContent = `${team.total_points} pts`;
+
+    // Render formation
+    renderPitch(team.squad);
+    renderBench(team.squad);
+    renderChips(team.chip_status);
+}
+
+function renderPitch(squad) {
+    const container = document.getElementById('pitch-players');
+    if (!container) return;
+    container.innerHTML = '';
+
+    const formation = document.getElementById('formation-select').value;
+    const positions = getFormationPositions(formation);
+
+    const starters = squad.filter(p => p.is_starting);
+    const bench = squad.filter(p => !p.is_starting);
+
+    // Sort starters by position
+    const gk = starters.filter(p => p.player.position === 'GK');
+    const defs = starters.filter(p => p.player.position === 'DEF');
+    const mids = starters.filter(p => p.player.position === 'MID');
+    const fwds = starters.filter(p => p.player.position === 'FWD');
+
+    const allStarters = [...gk, ...defs, ...mids, ...fwds];
+
+    positions.forEach((pos, i) => {
+        if (i >= allStarters.length) return;
+        const sp = allStarters[i];
+        if (!sp || !sp.player) return;
+
+        const playerDiv = document.createElement('div');
+        playerDiv.className = 'pitch-player';
+        playerDiv.style.left = pos.x + '%';
+        playerDiv.style.top = pos.y + '%';
+
+        const circleClass = sp.is_captain ? 'captain' : (sp.is_vice_captain ? 'vice' : '');
+        const badge = sp.is_captain ? 'C' : (sp.is_vice_captain ? 'VC' : '');
+
+        const posColor = {
+            'GK': 'var(--gk)',
+            'DEF': 'var(--def)',
+            'MID': 'var(--mid)',
+            'FWD': 'var(--fwd)',
+        }[sp.player.position] || 'var(--text-muted)';
+
+        playerDiv.innerHTML = `
+            <div class="player-circle ${circleClass}" style="background:${posColor}">
+                ${badge || sp.player.position}
+            </div>
+            <div class="player-name">${sp.player.name}</div>
+            <div class="player-pts">${sp.total_points || 0}</div>
+        `;
+
+        playerDiv.onclick = () => setCaptainFromPitch(sp);
+        container.appendChild(playerDiv);
+    });
+}
+
+function renderBench(squad) {
+    const container = document.getElementById('bench-grid');
+    if (!container) return;
+    container.innerHTML = '';
+
+    const bench = squad.filter(p => !p.is_starting);
+    bench.forEach(sp => {
+        if (!sp.player) return;
+        const div = document.createElement('div');
+        div.className = `bench-player ${sp.was_autosub ? 'autosub' : ''}`;
+        div.innerHTML = `
+            <span class="pos-badge pos-${sp.player.position}">${sp.player.position}</span>
+            <span>${sp.player.name}</span>
+            <span style="margin-left:auto;color:var(--green)">${sp.total_points || 0}</span>
+            ${sp.was_autosub ? '<span style="color:var(--yellow);font-size:0.75rem">SUB</span>' : ''}
+        `;
+        container.appendChild(div);
+    });
+}
+
+function renderChips(chipStatus) {
+    const container = document.getElementById('chips-grid');
+    if (!container) return;
+
+    const chips = [
+        { id: 'wildcard_1', name: 'Wildcard (1st Half)', desc: 'Unlimited transfers. GW 1-19.', used: chipStatus.wildcard_first_half_used, action: 'wildcard' },
+        { id: 'wildcard_2', name: 'Wildcard (2nd Half)', desc: 'Unlimited transfers. GW 20+.', used: chipStatus.wildcard_second_half_used, action: 'wildcard' },
+        { id: 'free_hit', name: 'Free Hit', desc: 'Temporary squad for 1 GW.', used: chipStatus.free_hit_used, action: 'free_hit' },
+        { id: 'bench_boost', name: 'Bench Boost', desc: 'All 15 players score.', used: chipStatus.bench_boost_used, action: 'bench_boost' },
+        { id: 'triple_captain', name: 'Triple Captain', desc: 'Captain gets 3x points.', used: chipStatus.triple_captain_used, action: 'triple_captain' },
+    ];
+
+    container.innerHTML = chips.map(chip => `
+        <div class="chip-card ${chip.used ? 'used' : 'available'}">
+            <h4>${chip.name}</h4>
+            <p>${chip.desc}</p>
+            ${chip.used ? '<span style="color:var(--red)">USED</span>' :
+              `<button class="btn btn-sm btn-primary" onclick="activateChip('${chip.action}')">Activate</button>`}
+        </div>
+    `).join('');
+}
+
+async function activateChip(chip) {
+    if (!state.user) return;
+    try {
+        if (chip === 'wildcard') {
+            showToast('Use wildcard through the Transfers page', 'info');
+            showPage('transfers');
             return;
         }
-        
-        let html = '';
-        for (const div of divisions) {
-            html += `
-                <div class="division-section">
-                    <div class="division-header">${div.name} (${div.teams.length} teams)</div>
-                    <table class="team-table">
-                        <thead>
-                            <tr>
-                                <th>Pos</th>
-                                <th>Team</th>
-                                <th>P</th>
-                                <th>W</th>
-                                <th>D</th>
-                                <th>L</th>
-                                <th>GD</th>
-                                <th>Pts</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-            `;
-            
-            for (const team of div.teams) {
-                html += `
-                            <tr>
-                                <td class="team-position">${team.position || '-'}</td>
-                                <td class="team-name">${team.name}</td>
-                                <td>${team.games_played || 0}</td>
-                                <td>-</td>
-                                <td>-</td>
-                                <td>-</td>
-                                <td>-</td>
-                                <td><strong>${team.points || 0}</strong></td>
-                            </tr>
-                `;
-            }
-            
-            html += `
-                        </tbody>
-                    </table>
-                </div>
-            `;
-        }
-        
-        container.innerHTML = html;
-    } catch (err) {
-        container.innerHTML = `<p style="color: var(--danger)">Error: ${err.message}</p>`;
-    }
-}
-
-async function refreshTeams() {
-    try {
-        const result = await api('/api/teams/refresh', { method: 'GET' });
-        showToast(`Updated ${result.teams_updated} teams from ${result.divisions} divisions`);
-        loadTeams();
-    } catch (err) {
-        showToast(`Error: ${err.message}`, 'error');
-    }
-}
-
-// My Team
-async function loadMyTeam() {
-    const container = document.getElementById('my-team-container');
-    container.innerHTML = '<div class="loading">Loading your team...</div>';
-    
-    if (!state.user) {
-        container.innerHTML = '<p>Please <a href="#" onclick="showPage(\'register\')">register or login</a> first.</p>';
-        return;
-    }
-    
-    try {
-        const team = await api(`/api/users/${state.user.id}/team`);
-        
-        let totalPoints = 0;
-        let html = `
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
-                <h3>${team.name}</h3>
-                <span class="positive" style="font-size:1.5rem;font-weight:700;">${team.total_points} pts</span>
-            </div>
-            <div class="squad-grid">
-        `;
-        
-        for (const player of team.squad) {
-            totalPoints += player.total_points;
-            const badges = [];
-            if (player.is_captain) badges.push('<span class="captain-badge">C</span>');
-            else if (player.is_vice_captain) badges.push('<span class="vice-badge">VC</span>');
-            
-            html += `
-                <div class="squad-card">
-                    ${badges.join('')}
-                    <span class="position-badge">${player.position}</span>
-                    <h4>${player.team.name}</h4>
-                    <div class="points">${player.total_points}</div>
-                </div>
-            `;
-        }
-        
-        html += '</div>';
-        
-        // Captain picker
-        html += `
-            <div style="margin-top:1.5rem;background:var(--dark);padding:1.5rem;border-radius:12px;border:1px solid rgba(255,255,255,0.1);">
-                <h4>Set Captain</h4>
-                <div style="display:flex;gap:1rem;margin-top:0.75rem;">
-                    <select id="captain-select" style="flex:1;padding:0.5rem;border-radius:6px;background:var(--darker);color:var(--light);border:1px solid rgba(255,255,255,0.1);">
-        `;
-        
-        for (const player of team.squad) {
-            const selected = player.is_captain ? 'selected' : '';
-            html += `<option value="${player.team_id}" ${selected}>${player.team.name}</option>`;
-        }
-        
-        html += `</select>
-                    <select id="vc-select" style="flex:1;padding:0.5rem;border-radius:6px;background:var(--darker);color:var(--light);border:1px solid rgba(255,255,255,0.1);">
-        `;
-        
-        for (const player of team.squad) {
-            const selected = player.is_vice_captain ? 'selected' : '';
-            html += `<option value="${player.team_id}" ${selected}>${player.team.name}</option>`;
-        }
-        
-        html += `</select>
-                    <button class="btn btn-primary" onclick="setCaptain()">Set</button>
-                </div>
-            </div>
-        `;
-        
-        container.innerHTML = html;
-    } catch (err) {
-        container.innerHTML = `<p style="color: var(--danger)">Error: ${err.message}</p>`;
-    }
-}
-
-async function setCaptain() {
-    const captainId = parseInt(document.getElementById('captain-select').value);
-    const vcId = parseInt(document.getElementById('vc-select').value);
-    
-    if (captainId === vcId) {
-        showToast('Captain and Vice-Captain must be different', 'error');
-        return;
-    }
-    
-    try {
-        await api(`/api/users/${state.user.id}/team/captain`, {
-            method: 'PUT',
-            body: JSON.stringify({
-                captain_id: captainId,
-                vice_captain_id: vcId,
-            }),
+        await api(`/api/users/${state.user.id}/team/chip`, {
+            method: 'POST',
+            body: JSON.stringify({ chip }),
         });
-        
-        showToast('Captain set!');
+        showToast(`${chip.replace('_', ' ').toUpperCase()} activated!`);
         loadMyTeam();
     } catch (err) {
         showToast(err.message, 'error');
     }
 }
 
-// Leaderboard
-async function loadLeaderboard() {
-    const container = document.getElementById('leaderboard-container');
-    container.innerHTML = '<div class="loading">Loading leaderboard...</div>';
-    
+function getFormationPositions(formation) {
+    const [def, mid, fwd] = formation.split('-').map(Number);
+    const positions = [];
+
+    // GK at bottom
+    positions.push({ x: 50, y: 90 });
+
+    // DEF line
+    const defY = 70;
+    for (let i = 0; i < def; i++) {
+        positions.push({ x: 20 + (i * 60 / (def - 1 || 1)), y: defY });
+    }
+
+    // MID line
+    const midY = 45;
+    for (let i = 0; i < mid; i++) {
+        positions.push({ x: 15 + (i * 70 / (mid - 1 || 1)), y: midY });
+    }
+
+    // FWD line
+    const fwdY = 20;
+    for (let i = 0; i < fwd; i++) {
+        positions.push({ x: 25 + (i * 50 / (fwd - 1 || 1)), y: fwdY });
+    }
+
+    return positions;
+}
+
+function changeFormation() {
+    renderPitch(state.team.squad);
+}
+
+async function setCaptainFromPitch(sp) {
+    if (!state.user) return;
     try {
-        const data = await api('/api/leaderboard/');
-        
-        if (!data.entries.length) {
-            container.innerHTML = '<p>No teams registered yet. Be the first!</p>';
-            return;
-        }
-        
-        let html = `
-            <table class="leaderboard-table">
-                <thead>
-                    <tr>
-                        <th>Rank</th>
-                        <th>Manager</th>
-                        <th>Team</th>
-                        <th>Points</th>
-                    </tr>
-                </thead>
-                <tbody>
-        `;
-        
-        for (const entry of data.entries) {
-            html += `
-                    <tr>
-                        <td class="leaderboard-rank">${entry.rank}</td>
-                        <td>${entry.username}</td>
-                        <td>${entry.team_name}</td>
-                        <td><strong class="positive">${entry.total_points}</strong></td>
-                    </tr>
-            `;
-        }
-        
-        html += '</tbody></table>';
-        container.innerHTML = html;
+        const vc = state.team.squad.find(p => !p.is_captain);
+        await api(`/api/users/${state.user.id}/team/captain`, {
+            method: 'PUT',
+            body: JSON.stringify({
+                captain_id: sp.id,
+                vice_captain_id: vc ? vc.id : null,
+            }),
+        });
+        showToast(`${sp.player.name} is now captain`);
+        loadMyTeam();
     } catch (err) {
-        container.innerHTML = `<p style="color: var(--danger)">Error: ${err.message}</p>`;
+        showToast(err.message, 'error');
     }
 }
 
-// Gameweeks
+// TRANSFERS
+async function loadTransfers() {
+    if (!state.user) {
+        showPage('login');
+        return;
+    }
+
+    try {
+        const status = await api(`/api/transfers/status/${state.user.id}`);
+        document.getElementById('transfer-free').textContent = status.free_transfers;
+        document.getElementById('transfer-budget').textContent = status.budget_remaining.toFixed(1);
+        document.getElementById('wildcard-status').textContent =
+            status.wildcard_first_half_available || status.wildcard_second_half_available ? 'Available' : 'Used';
+    } catch (err) {
+        // Ignore status errors
+    }
+
+    searchTransferPlayers();
+}
+
+async function searchTransferPlayers() {
+    if (!state.user) return;
+
+    const query = document.getElementById('transfer-search-input')?.value || '';
+    const position = document.getElementById('transfer-position-filter')?.value || '';
+
+    try {
+        const params = new URLSearchParams();
+        if (query) params.set('search', query);
+        if (position) params.set('position', position);
+
+        const players = await api(`/api/players/?${params}`);
+        renderTransferList(players);
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+}
+
+function renderTransferList(players) {
+    const container = document.getElementById('transfer-results');
+    if (!container) return;
+
+    const squadPlayerIds = new Set(
+        (state.team?.squad || []).map(sp => sp.player_id)
+    );
+
+    container.innerHTML = players.map(p => {
+        const inSquad = squadPlayerIds.has(p.id);
+        return `
+            <div class="player-card ${inSquad ? 'in-squad' : ''}"
+                 onclick="${inSquad ? `selectPlayerOut(${p.id})` : `executeTransfer(${p.id})`}">
+                <span class="pos-badge pos-${p.position}">${p.position}</span>
+                <div class="player-info">
+                    <div class="player-name">${p.name}</div>
+                    <div class="player-team">${p.team_id ? 'Team ' + p.team_id : ''}</div>
+                </div>
+                <div class="player-stats">
+                    <span class="player-price">${p.price.toFixed(1)}m</span>
+                    ${inSquad ? '<span style="color:var(--green)">OWNED</span>' : ''}
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function selectPlayerOut(playerId) {
+    if (!state.team) return;
+    const sp = state.team.squad.find(s => s.player_id === playerId);
+    if (!sp) return;
+
+    state.transferPlayerOut = sp;
+    const selectedDiv = document.getElementById('transfer-selected');
+    selectedDiv.style.display = 'flex';
+    document.getElementById('selected-out').innerHTML = `
+        <span class="pos-badge pos-${sp.player.position}">${sp.player.position}</span>
+        <strong>${sp.player.name}</strong>
+        <span>${sp.player.price.toFixed(1)}m</span>
+    `;
+}
+
+async function executeTransfer(playerInId) {
+    if (!state.user || !state.transferPlayerOut) {
+        showToast('Select a player to swap out first', 'error');
+        return;
+    }
+
+    try {
+        await api(`/api/transfers/`, {
+            method: 'POST',
+            body: JSON.stringify({
+                player_in_id: playerInId,
+                player_out_id: state.transferPlayerOut.player_id,
+                user_id: state.user.id,
+            }),
+        });
+
+        showToast('Transfer complete!');
+        state.transferPlayerOut = null;
+        document.getElementById('transfer-selected').style.display = 'none';
+        loadMyTeam();
+        loadTransfers();
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+}
+
+// PLAYERS
+async function loadPlayers() {
+    const query = document.getElementById('player-search')?.value || '';
+    const position = document.getElementById('player-position')?.value || '';
+    const sortBy = document.getElementById('player-sort')?.value || 'goals';
+
+    try {
+        const params = new URLSearchParams();
+        if (query) params.set('search', query);
+        if (position) params.set('position', position);
+        params.set('order_by', sortBy);
+
+        const players = await api(`/api/players/?${params}`);
+        renderPlayerList(players);
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+}
+
+function renderPlayerList(players) {
+    const container = document.getElementById('players-container');
+    if (!container) return;
+
+    const squadPlayerIds = new Set(
+        (state.team?.squad || []).map(sp => sp.player_id)
+    );
+
+    container.innerHTML = players.map(p => `
+        <div class="player-card ${squadPlayerIds.has(p.id) ? 'in-squad' : ''}">
+            <span class="pos-badge pos-${p.position}">${p.position}</span>
+            <div class="player-info">
+                <div class="player-name">${p.name}</div>
+                <div class="player-team">Team ${p.team_id || '?'}</div>
+            </div>
+            <div class="player-stats">
+                <span class="player-price">${p.price.toFixed(1)}m</span>
+                <span class="player-goals">${p.goals || 0}G</span>
+                <span class="player-pts">${p.total_points || 0}</span>
+                ${p.form ? `<span class="player-form">(${p.form})</span>` : ''}
+                ${squadPlayerIds.has(p.id) ? '<span style="color:var(--green);margin-left:0.5rem">&#10003;</span>' : ''}
+            </div>
+        </div>
+    `).join('');
+}
+
+// GAMEWEEKS
 async function loadGameweeks() {
     const container = document.getElementById('gameweeks-container');
-    container.innerHTML = '<div class="loading">Loading gameweeks...</div>';
-    
+    if (!container) return;
+    container.innerHTML = '<div class="loading">Loading...</div>';
+
     try {
-        const data = await api('/api/gameweeks/current');
-        
-        if (!data.gameweek) {
-            container.innerHTML = '<p>No active gameweek. Sync fixtures to create gameweeks.</p>';
+        const data = await api('/api/gameweeks/');
+
+        if (!data.length) {
+            container.innerHTML = '<p>No gameweeks yet. Click "Sync Fixtures" to fetch.</p>';
             return;
         }
-        
-        const gw = data.gameweek;
-        let html = `
+
+        container.innerHTML = data.map(gw => `
             <div class="gameweek-card">
                 <div class="gameweek-header">
                     <div>
                         <strong>Gameweek ${gw.number}</strong>
-                        <span style="color:var(--gray);margin-left:0.5rem;">${gw.season}</span>
+                        <span style="color:var(--text-muted);margin-left:0.5rem;">${gw.season}</span>
                     </div>
                     <span class="gameweek-status ${gw.closed ? 'status-closed' : 'status-active'}">
                         ${gw.closed ? 'Closed' : 'Active'}
                     </span>
                 </div>
-                <div class="gameweek-fixtures">
-                    <p style="color:var(--gray);font-size:0.85rem;margin-bottom:0.5rem;">
-                        Deadline: ${new Date(gw.deadline).toLocaleString()}
-                    </p>
-        `;
-        
-        for (const f of data.fixtures) {
-            html += `
-                    <div class="fixture-row">
-                        <span class="fixture-team home">${f.home_team}</span>
-                        <span class="fixture-score">${f.played ? `${f.home_score} - ${f.away_score}` : 'vs'}</span>
-                        <span class="fixture-team away">${f.away_team}</span>
-                    </div>
-            `;
-        }
-        
-        html += '</div></div>';
-        container.innerHTML = html;
+                <p style="color:var(--text-muted);font-size:0.85rem;">
+                    Deadline: ${new Date(gw.deadline).toLocaleString()}
+                    | ${gw.fixture_count} fixtures
+                    ${gw.scored ? '<span style="color:var(--green)"> | Scored</span>' : ''}
+                </p>
+            </div>
+        `).join('');
     } catch (err) {
-        container.innerHTML = `<p style="color: var(--danger)">Error: ${err.message}</p>`;
+        container.innerHTML = `<p style="color:var(--red)">Error: ${err.message}</p>`;
     }
 }
 
 async function syncGameweeks() {
     try {
         const result = await api('/api/gameweeks/sync', { method: 'POST' });
-        showToast(`Synced ${result.fixtures_synced} fixtures across ${result.gameweeks} gameweeks`);
+        showToast(`Synced ${result.fixtures_synced || 0} fixtures`);
         loadGameweeks();
     } catch (err) {
-        showToast(`Error: ${err.message}`, 'error');
+        showToast(err.message, 'error');
     }
+}
+
+// LEADERBOARD
+async function loadLeaderboard() {
+    const container = document.getElementById('leaderboard-container');
+    if (!container) return;
+    container.innerHTML = '<div class="loading">Loading...</div>';
+
+    try {
+        const data = await api('/api/leaderboard/');
+
+        if (!data.entries.length) {
+            container.innerHTML = '<p>No teams yet. Be the first to register!</p>';
+            return;
+        }
+
+        let html = `
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Rank</th>
+                        <th>Manager</th>
+                        <th>Team</th>
+                        <th>Total</th>
+                        <th>GW</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+
+        data.entries.forEach(entry => {
+            const rankClass = entry.rank <= 3 ? 'top3' : '';
+            const isYou = state.user && entry.user_id === state.user.id;
+
+            html += `
+                <tr style="${isYou ? 'background:rgba(56,163,218,0.1)' : ''}">
+                    <td class="leaderboard-rank ${rankClass}">${entry.rank}</td>
+                    <td>${entry.username} ${isYou ? '(You)' : ''}</td>
+                    <td>${entry.team_name}</td>
+                    <td><strong class="pts-positive">${entry.total_points}</strong></td>
+                    <td>${entry.gameweek_points != null ? entry.gameweek_points : '-'}</td>
+                </tr>
+            `;
+        });
+
+        html += '</tbody></table>';
+        container.innerHTML = html;
+    } catch (err) {
+        container.innerHTML = `<p style="color:var(--red)">Error: ${err.message}</p>`;
+    }
+}
+
+// LEAGUES
+async function loadLeagues() {
+    if (!state.user) {
+        showPage('login');
+        return;
+    }
+
+    const container = document.getElementById('leagues-container');
+    if (!container) return;
+    container.innerHTML = '<div class="loading">Loading...</div>';
+
+    try {
+        const data = await api(`/api/leagues/my-leagues/${state.user.id}`);
+
+        if (!data.leagues.length) {
+            container.innerHTML = '<p>No leagues yet. Create one or join with a code.</p>';
+            return;
+        }
+
+        container.innerHTML = data.leagues.map(league => `
+            <div class="league-card">
+                <div class="card-header">
+                    <div class="card-title">${league.name}</div>
+                    <span class="league-code">${league.code}</span>
+                </div>
+                <p>Members: ${league.member_count} | Your rank: ${league.your_rank || '-'}</p>
+                ${league.is_admin ? '<span style="color:var(--yellow)">Admin</span>' : ''}
+            </div>
+        `).join('');
+    } catch (err) {
+        container.innerHTML = `<p style="color:var(--red)">Error: ${err.message}</p>`;
+    }
+}
+
+function showCreateLeague() {
+    const name = prompt('League name:');
+    if (!name) return;
+
+    api('/api/leagues/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, is_h2h: false }),
+        search: `user_id=${state.user.id}`,
+    }).then(() => {
+        showToast('League created!');
+        loadLeagues();
+    }).catch(err => showToast(err.message, 'error'));
+}
+
+function showJoinLeague() {
+    const code = prompt('Enter league code:');
+    if (!code) return;
+
+    api(`/api/leagues/join?user_id=${state.user.id}`, {
+        method: 'POST',
+        body: JSON.stringify({ code }),
+    }).then(() => {
+        showToast('Joined league!');
+        loadLeagues();
+    }).catch(err => showToast(err.message, 'error'));
 }
 
 // Initialize
 updateNav();
-
-// Store users for login
-function storeUser(user, password) {
-    const stored = JSON.parse(localStorage.getItem('ff_iom_users') || '[]');
-    const existing = stored.findIndex(u => u.username === user.username);
-    if (existing >= 0) {
-        stored[existing] = { id: user.id, username: user.username, email: user.email, password };
-    } else {
-        stored.push({ id: user.id, username: user.username, email: user.email, password });
-    }
-    localStorage.setItem('ff_iom_users', JSON.stringify(stored));
+if (state.user) {
+    // Load home data
+    loadHome();
 }
-
-// Override register to also store password for login
-const originalHandleRegister = handleRegister;
-handleRegister = async function(e) {
-    e.preventDefault();
-    const password = document.getElementById('reg-password').value;
-    
-    const username = document.getElementById('reg-username').value;
-    const email = document.getElementById('reg-email').value;
-    const teamName = document.getElementById('reg-team-name').value;
-    
-    try {
-        const user = await api('/api/users/register', {
-            method: 'POST',
-            body: JSON.stringify({ username, email, password }),
-        });
-        
-        await api(`/api/users/${user.id}/team/create`, {
-            method: 'POST',
-            body: JSON.stringify({ team_name: teamName }),
-        });
-        
-        storeUser(user, password);
-        
-        state.user = user;
-        localStorage.setItem('ff_iom_user', JSON.stringify(user));
-        updateNav();
-        showToast(`Welcome ${username}! Your team "${teamName}" has been created.`);
-        showPage('my-team');
-    } catch (err) {
-        showToast(err.message, 'error');
-    }
-};

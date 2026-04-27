@@ -2,7 +2,7 @@
 import hashlib
 import json
 import random
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Form
 from sqlalchemy.orm import Session
 from typing import Optional, List
 
@@ -56,7 +56,7 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
 
 
 @router.post("/login")
-def login(username: str, password: str, db: Session = Depends(get_db)):
+def login(username: str = Form(...), password: str = Form(...), db: Session = Depends(get_db)):
     """Login with username and password."""
     password_hash = hashlib.sha256(password.encode()).hexdigest()
     user = db.query(User).filter(
@@ -491,4 +491,84 @@ def get_user_rank(user_id: int, db: Session = Depends(get_db)):
         "rank": rank,
         "total_teams": total,
         "percentile": round((1 - rank / max(total, 1)) * 100, 1),
+    }
+
+
+@router.put("/{user_id}/team/picking")
+def set_picking(
+    user_id: int,
+    picking: dict,  # {"formation": "4-3-3", "starting_player_ids": [id1, id2, ...]}
+    db: Session = Depends(get_db),
+):
+    """Set team picking: formation and starting 11.
+
+    FPL Rules:
+    - Must have exactly 11 starters
+    - Must have 1 GK, 3-5 DEF, 3-5 MID, 1-3 FWD in starting XI
+    - Formation determines position slots on pitch
+
+    Args:
+        picking: Dict with 'formation' (e.g. '4-3-3') and 'starting_player_ids' (list of SquadPlayer IDs)
+    """
+    ft = db.query(FantasyTeam).filter(FantasyTeam.user_id == user_id).first()
+    if not ft:
+        raise HTTPException(status_code=404, detail="Fantasy team not found")
+
+    formation_name = picking.get("formation", "4-3-3")
+    starting_ids = picking.get("starting_player_ids", [])
+
+    # Validate formation
+    formation = scoring.validate_formation(formation_name)
+    if not formation:
+        raise HTTPException(
+            status_code= 400,
+            detail=f"Invalid formation '{formation_name}'. Valid: {[f['name'] for f in scoring.VALID_FORMATIONS]}",
+        )
+
+    squad = db.query(SquadPlayer).filter(
+        SquadPlayer.fantasy_team_id == ft.id
+    ).all()
+
+    if len(squad) < 15:
+        raise HTTPException(status_code=400, detail="Squad not complete (need 15 players)")
+
+    # Validate starting XI
+    if len(starting_ids) != 11:
+        raise HTTPException(status_code=400, detail="Must select exactly 11 starting players")
+
+    starting_sp = [sp for sp in squad if sp.id in starting_ids]
+    if len(starting_sp) != 11:
+        raise HTTPException(status_code=400, detail="Some player IDs not found in squad")
+
+    # Validate position counts
+    gk_count = sum(1 for sp in starting_sp if sp.player.position == "GK")
+    def_count = sum(1 for sp in starting_sp if sp.player.position == "DEF")
+    mid_count = sum(1 for sp in starting_sp if sp.player.position == "MID")
+    fwd_count = sum(1 for sp in starting_sp if sp.player.position == "FWD")
+
+    if gk_count != 1:
+        raise HTTPException(status_code=400, detail="Must have exactly 1 GK in starting XI")
+    if def_count != formation["def"]:
+        raise HTTPException(status_code=400, detail=f"Formation {formation_name} requires {formation['def']} DEF, have {def_count}")
+    if mid_count != formation["mid"]:
+        raise HTTPException(status_code=400, detail=f"Formation {formation_name} requires {formation['mid']} MID, have {mid_count}")
+    if fwd_count != formation["fwd"]:
+        raise HTTPException(status_code=400, detail=f"Formation {formation_name} requires {formation['fwd']} FWD, have {fwd_count}")
+
+    # Check captain/vice-captain are starting
+    captain = next((sp for sp in starting_sp if sp.is_captain), None)
+    if not captain:
+        raise HTTPException(status_code=400, detail="Captain must be in starting XI")
+
+    # Update is_starting for all squad players
+    for sp in squad:
+        sp.is_starting = sp.id in starting_ids
+
+    db.commit()
+
+    return {
+        "status": "picking_set",
+        "formation": formation_name,
+        "starters": len(starting_ids),
+        "bench": len(squad) - len(starting_ids),
     }
