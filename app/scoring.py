@@ -1,270 +1,366 @@
-"""FPL-style scoring engine adapted for team-based Fantasy Football.
+"""FPL-accurate scoring engine for Fantasy Football Isle of Man.
 
-Since the FullTime API only provides team-level data (no individual player stats),
-this scoring system treats each IOM team as a single 'player' in the fantasy game.
+Implements the official Fantasy Premier League scoring rules adapted for
+Isle of Man leagues where individual match stats may be limited.
 
-Scoring is adapted from FPL rules to work with team-level stats:
-- Team matches = player matches
-- Team goals = player goals
-- Team clean sheets = player clean sheets
-- Goal difference serves as a bonus point multiplier
+FPL Scoring Rules (2025/26):
+- GK Goal: +6, DEF Goal: +6, MID Goal: +5, FWD Goal: +4
+- Assist: +3 (all positions)
+- Clean sheet GK: +4, Clean sheet DEF: +4, Clean sheet MID: +3, FWD: N/A
+- Bonus points: +1/+2/+3 based on BPS ranking
+- Played 60+ mins: +2
+- Save: +1 (GK only)
+- Penalty save: +5 (GK only)
+- Penalty miss: -2 (all)
+- Penalty goal: +2 bonus (all)
+- Yellow card: -1
+- Red card: -3
+- Own goal: -2
+- Goals conceded: -1 (GK/DEF), max -3
+- Influence/Creativity/Threat (ICT) used for tiebreaker
 """
-from typing import Optional
 
 
-# --- Team position mapping ---
-# In FPL, each player has a position (GK/DEF/MID/FWD).
-# For teams, we map based on league performance/style:
-# - Top 4 teams in division = "Premium" (like FWD - high scoring)
-# - Teams 5-8 = "Midfield" (balanced)
-# - Teams 9-12 = "Defensive" (like DEF)
-# - Bottom teams = "Goalkeeper" (concede a lot, low scoring)
-# For simplicity, all teams share the same scoring model since we can't
-# differentiate individual player positions within a team.
+def calculate_player_points(
+    *,
+    position: str,
+    goals_scored: int = 0,
+    assists: int = 0,
+    clean_sheet: bool = False,
+    goals_conceded: int = 0,
+    saves: int = 0,
+    yellow_card: bool = False,
+    red_card: bool = False,
+    own_goal: bool = False,
+    penalties_saved: int = 0,
+    penalties_missed: int = 0,
+    minutes_played: int = 0,
+    was_penalty_goal: bool = False,
+    bonus_points: int = 0,
+) -> int:
+    """Calculate FPL points for a player in a single gameweek.
 
-
-# --- Scoring rules (adapted from FPL) ---
-
-# Base participation
-POINTS_PLAYED = 2  # Team played a match (always 90 mins)
-
-# Match result
-POINTS_WIN = 6  # Team won
-POINTS_DRAW = 2  # Team drew
-POINTS_LOSS = 0  # Team lost
-
-# Goals
-POINTS_GOAL_SCORED = 2  # Per goal scored
-POINTS_GOAL_CONCEDED_PENALTY = -1  # Per goal conceded (max -3)
-MAX_GOAL_CONCEDED_PENALTY = -3
-
-# Clean sheet
-POINTS_CLEAN_SHEET = 4  # Didn't concede any goals
-
-# Goal difference bonus
-POINTS_GOAL_DIFFERENCE_BONUS = 1  # Per 5 goals in GD margin
-
-# Cards (adapted from team discipline records - not available in API,
-# so skipped as per user instructions)
-
-# --- Multipliers ---
-CAPTAIN_MULTIPLIER = 2  # Captain's team scores double
-
-
-def calculate_team_points(
-    goals_scored: int,
-    goals_conceded: int,
-    result: str,  # "W", "D", "L"
-    is_captain: bool = False,
-    gd_bonus_threshold: int = 5,
-) -> dict:
-    """Calculate fantasy points for a team in a single match.
-    
-    Args:
-        goals_scored: Goals scored by the team
-        goals_conceded: Goals conceded by the team
-        result: Match result - "W", "D", or "L"
-        is_captain: Whether this team is the captain
-        gd_bonus_threshold: Goals difference for bonus point
-        
-    Returns:
-        Dict with points breakdown
+    Returns the total points scored.
     """
     points = 0
-    breakdown = {}
-    
-    # Participation
-    points += POINTS_PLAYED
-    breakdown["participation"] = POINTS_PLAYED
-    
-    # Match result
-    if result == "W":
-        points += POINTS_WIN
-        breakdown["result"] = POINTS_WIN
-    elif result == "D":
-        points += POINTS_DRAW
-        breakdown["result"] = POINTS_DRAW
-    else:
-        breakdown["result"] = 0
-    
-    # Goals scored
-    goal_points = goals_scored * POINTS_GOAL_SCORED
-    points += goal_points
-    breakdown["goals_scored"] = goal_points
-    
-    # Clean sheet
-    if goals_conceded == 0:
-        points += POINTS_CLEAN_SHEET
-        breakdown["clean_sheet"] = POINTS_CLEAN_SHEET
-    else:
-        breakdown["clean_sheet"] = 0
-    
-    # Goals conceded penalty
-    conceded_penalty = max(-goals_conceded, MAX_GOAL_CONCEDED_PENALTY) * POINTS_GOAL_CONCEDED_PENALTY
-    points += conceded_penalty
-    breakdown["goals_conceded"] = conceded_penalty
-    
-    # Goal difference bonus
-    gd = goals_scored - goals_conceded
-    if gd >= gd_bonus_threshold:
-        gd_bonus = 1
-        points += gd_bonus
-        breakdown["gd_bonus"] = gd_bonus
-    else:
-        breakdown["gd_bonus"] = 0
-    
-    breakdown["base_total"] = points
-    
-    # Captain multiplier
-    if is_captain:
-        breakdown["base_total"] = points
-        points = points * CAPTAIN_MULTIPLIER
-        breakdown["captain_multiplier"] = CAPTAIN_MULTIPLIER
-    else:
-        breakdown["captain_multiplier"] = 1
-    
-    breakdown["total"] = points
-    
-    return breakdown
+
+    # Participation bonus (played 60+ minutes)
+    if minutes_played >= 60:
+        points += 2
+
+    # Goals - position dependent
+    if goals_scored > 0:
+        goal_points = {
+            "GK": 6,
+            "DEF": 6,
+            "MID": 5,
+            "FWD": 4,
+        }.get(position, 5)
+        points += goals_scored * goal_points
+
+        # Penalty goal bonus
+        if was_penalty_goal:
+            points += 2
+
+    # Assists
+    points += assists * 3
+
+    # Clean sheet - position dependent
+    if clean_sheet:
+        clean_sheet_points = {
+            "GK": 4,
+            "DEF": 4,
+            "MID": 3,
+            "FWD": 0,
+        }.get(position, 0)
+        points += clean_sheet_points
+
+    # Goals conceded (GK and DEF only)
+    if position in ("GK", "DEF"):
+        conceded_penalty = min(goals_conceded, 3)  # Max 3 point penalty
+        points -= conceded_penalty
+
+    # Saves (GK only)
+    if position == "GK":
+        points += saves
+
+        # Penalty saves (GK only)
+        points += penalties_saved * 5
+
+    # Cards
+    if yellow_card:
+        points -= 1
+    if red_card:
+        points -= 3
+
+    # Own goal
+    if own_goal:
+        points -= 2
+
+    # Penalty missed
+    points -= penalties_missed * 2
+
+    # Bonus points (awarded after BPS calculation)
+    points += bonus_points
+
+    return points
 
 
-def calculate_bonus_points(
-    player_fixtures: list,
-) -> dict:
-    """Calculate bonus points (1-3) for teams in a gameweek.
-    
-    Uses FPL's bonus point algorithm:
-    1. Rank teams by base points scored
-    2. For tiebreakers, use contribution stats (goals scored, clean sheets, etc.)
-    3. Top 3 get 3, 2, 1 bonus points respectively
-    
-    Args:
-        player_fixtures: List of PlayerFixture objects with base points
-        
-    Returns:
-        Dict mapping squad_player_id to bonus points (1, 2, or 3)
+def calculate_bps(
+    *,
+    position: str,
+    goals_scored: int = 0,
+    assists: int = 0,
+    clean_sheet: bool = False,
+    goals_conceded: int = 0,
+    saves: int = 0,
+    tackles: int = 0,
+    interceptions: int = 0,
+    yellow_card: bool = False,
+    red_card: bool = False,
+    own_goal: bool = False,
+    penalties_saved: int = 0,
+    penalties_missed: int = 0,
+    minutes_played: int = 0,
+    was_penalty_goal: bool = False,
+    bonus_points: int = 0,
+) -> int:
+    """Calculate BPS (Bonus Points System) score for a player.
+
+    BPS is used to determine which 3 players get bonus points (3, 2, 1)
+    in each fixture. Based on FPL's underlying stat weighting.
+
+    FPL BPS weights (approximate, based on observed values):
     """
-    if not player_fixtures:
+    bps = 0
+
+    # Only players who played get BPS
+    if minutes_played < 1:
+        return 0
+
+    # Goals (heavy weight)
+    if goals_scored > 0:
+        if position == "FWD":
+            bps += goals_scored * 8
+        elif position == "MID":
+            bps += goals_scored * 10
+        else:  # GK, DEF
+            bps += goals_scored * 12
+
+        if was_penalty_goal:
+            bps += 2
+
+    # Assists
+    bps += assists * 8
+
+    # Clean sheet
+    if clean_sheet:
+        if position == "GK":
+            bps += 10
+        elif position == "DEF":
+            bps += 8
+        elif position == "MID":
+            bps += 5
+
+    # Saves (GK)
+    bps += saves * 2
+    bps += penalties_saved * 10
+
+    # Defending
+    bps += tackles * 3
+    bps += interceptions * 3
+
+    # Negative events
+    if yellow_card:
+        bps -= 1
+    if red_card:
+        bps -= 5
+    if own_goal:
+        bps -= 3
+    bps -= goals_conceded * 2
+    bps -= penalties_missed * 3
+
+    # Minutes played contribution (small weight)
+    bps += max(0, (minutes_played - 15) // 15)  # 1 BPS per 15 min after 15 min
+
+    return max(0, bps)
+
+
+def award_bonus_points(players_with_bps: list) -> dict:
+    """Award bonus points to top 3 players by BPS.
+
+    Args:
+        players_with_bps: List of dicts with 'player_id' and 'bps' keys.
+
+    Returns:
+        Dict mapping player_id -> bonus_points (3, 2, or 1).
+    """
+    if len(players_with_bps) < 3:
         return {}
-    
-    # Sort by base points, then by contribution stats
-    def sort_key(pf):
-        return (
-            pf.points,           # Base points
-            pf.goals_scored,     # Goals scored
-            1 if pf.clean_sheet else 0,  # Clean sheet
-            -pf.goals_conceded,  # Fewer goals conceded
-        )
-    
-    ranked = sorted(player_fixtures, key=sort_key, reverse=True)
-    
+
+    # Sort by BPS descending
+    sorted_players = sorted(players_with_bps, key=lambda x: x["bps"], reverse=True)
+
     bonus_map = {}
-    for i, pf in enumerate(ranked):
-        if i < 3:
-            bonus_map[pf.id] = 3 - i  # 3, 2, 1
-        else:
-            bonus_map[pf.id] = 0
-    
+    bonus_values = [3, 2, 1]
+    for i in range(3):
+        player_id = sorted_players[i]["player_id"]
+        bonus_map[player_id] = bonus_values[i]
+
     return bonus_map
 
 
-def calculate_gameweek_scores(
-    fixtures: list,
-    squad: list,
-    captain_id: int,
-    vice_captain_id: Optional[int] = None,
-) -> dict:
-    """Calculate total gameweek score for a fantasy team.
-    
-    Args:
-        fixtures: List of Fixture objects for the gameweek
-        squad: List of SquadPlayer objects
-        captain_id: The team_id of the captain
-        vice_captain_id: The team_id of the vice-captain
-        
-    Returns:
-        Dict with total points and per-team breakdown
+def calculate_captain_points(base_points: int, is_captain: bool, chip: str = None) -> int:
+    """Calculate captain multiplier points.
+
+    Captain gets 2x (or 3x with triple captain chip).
     """
-    # Build lookup: team_name -> fixture result
-    fixture_results = {}
-    for fixture in fixtures:
-        if not fixture.played:
-            continue
-        
-        home_result = "W" if fixture.home_score > fixture.away_score else (
-            "D" if fixture.home_score == fixture.away_score else "L"
-        )
-        away_result = "W" if fixture.away_score > fixture.home_score else (
-            "D" if fixture.away_score == fixture.home_score else "L"
-        )
-        
-        fixture_results[fixture.home_team] = {
-            "result": home_result,
-            "goals_scored": fixture.home_score,
-            "goals_conceded": fixture.away_score,
-            "opponent": fixture.away_team,
-            "is_home": True,
-            "fixture_id": fixture.id,
-        }
-        fixture_results[fixture.away_team] = {
-            "result": away_result,
-            "goals_scored": fixture.away_score,
-            "goals_conceded": fixture.home_score,
-            "opponent": fixture.home_team,
-            "is_home": False,
-            "fixture_id": fixture.id,
-        }
-    
-    # Check if captain played; if not, use vice-captain
-    actual_captain_id = captain_id
-    captain_played = any(
-        sp.team_id == captain_id and sp.team.name in fixture_results
-        for sp in squad
-    )
-    if not captain_played and vice_captain_id:
-        vc_played = any(
-            sp.team_id == vice_captain_id and sp.team.name in fixture_results
-            for sp in squad
-        )
-        if vc_played:
-            actual_captain_id = vice_captain_id
-    
+    if not is_captain:
+        return base_points
+
+    multiplier = 3 if chip == "triple_captain" else 2
+    return base_points * multiplier
+
+
+def calculate_transfer_hit(
+    transfers_made: int,
+    free_transfers_available: int,
+    is_wildcard: bool = False,
+) -> int:
+    """Calculate point hit for transfers.
+
+    Rules:
+    - 1 free transfer per gameweek
+    - Unused transfers rollover (max 5)
+    - Extra transfers: -4 points each
+    - Wildcard: no transfer limit, no point hit
+    """
+    if is_wildcard:
+        return 0
+
+    if transfers_made <= free_transfers_available:
+        return 0
+
+    extra = transfers_made - free_transfers_available
+    return extra * 4  # -4 per extra transfer
+
+
+def calculate_gameweek_score(
+    *,
+    squad_points: list,
+    captain_id: int,
+    vice_captain_id: int,
+    transfers_cost: int = 0,
+    chip: str = None,
+) -> dict:
+    """Calculate a fantasy team's total score for a gameweek.
+
+    Args:
+        squad_points: List of dicts with 'id', 'base_points', 'is_captain', 'is_starting'
+        captain_id: SquadPlayer ID of captain
+        vice_captain_id: SquadPlayer ID of vice-captain
+        transfers_cost: Point hit from transfers
+        chip: Active chip name
+
+    Returns:
+        Dict with total, captain, bench_boost, transfer details.
+    """
+    captain_played = False
     total = 0
-    breakdown = {}
-    
-    for sp in squad:
-        team_name = sp.team.name
-        if team_name not in fixture_results:
-            # Team didn't play this gameweek
-            breakdown[sp.team_id] = {
-                "team": team_name,
-                "points": 0,
-                "detail": "Did not play",
-            }
+    bench_points = 0
+    captain_points = 0
+
+    # Find if captain played
+    captain_entry = next((sp for sp in squad_points if sp.get("id") == captain_id), None)
+    vice_entry = next((sp for sp in squad_points if sp.get("id") == vice_captain_id), None)
+
+    # Determine effective captain (vice takes over if captain didn't play)
+    effective_captain_id = captain_id
+    if captain_entry and not captain_entry.get("did_play", True):
+        effective_captain_id = vice_captain_id
+    elif not captain_entry:
+        effective_captain_id = vice_captain_id
+
+    for sp in squad_points:
+        base = sp.get("base_points", 0)
+        is_starting = sp.get("is_starting", True)
+        did_play = sp.get("did_play", True)
+
+        # Determine if this player contributes
+        if chip == "bench_boost":
+            # All 15 players contribute
+            contributes = did_play
+        else:
+            contributes = is_starting and did_play
+
+        if not contributes:
             continue
-        
-        result = fixture_results[team_name]
-        is_captain = (sp.team_id == actual_captain_id)
-        
-        points = calculate_team_points(
-            goals_scored=result["goals_scored"],
-            goals_conceded=result["goals_conceded"],
-            result=result["result"],
-            is_captain=is_captain,
-        )
-        
-        total += points["total"]
-        breakdown[sp.team_id] = {
-            "team": team_name,
-            "points": points["total"],
-            "detail": points,
-            "captain": is_captain,
-            "fixture_id": result["fixture_id"],
-            "opponent": result["opponent"],
-            "is_home": result["is_home"],
-        }
-    
+
+        # Apply captain multiplier
+        points = base
+        if sp.get("id") == effective_captain_id:
+            multiplier = 3 if chip == "triple_captain" else 2
+            points = base * multiplier
+            captain_points = points - base
+        else:
+            points = base
+
+        total += points
+
+    # Apply transfer hit
+    total -= transfers_cost
+
     return {
-        "total": total,
-        "breakdown": breakdown,
+        "total_points": total,
+        "captain_points": captain_points,
+        "transfers_cost": transfers_cost,
+        "chip": chip,
     }
+
+
+def update_player_price(selected_by_percent: float, gw_points: int, current_price: float) -> float:
+    """Calculate player price change for a gameweek.
+
+    FPL price rules:
+    - +0.1m for every 50% increase in ownership
+    - -0.1m for every 50% decrease
+    - Price rounded to nearest 0.1m
+    - Min price 1.0m, max 15.0m
+    """
+    # Price change based on selection percentage
+    change = 0
+
+    if selected_by_percent >= 50:
+        change += 0.1
+    elif selected_by_percent >= 30:
+        change += 0.05
+    elif selected_by_percent <= -50:
+        change -= 0.1
+    elif selected_by_percent <= -30:
+        change -= 0.05
+
+    new_price = current_price + change
+    return round(max(1.0, min(15.0, new_price)), 1)
+
+
+def calculate_form(points_history: list, weeks: int = 5) -> float:
+    """Calculate player form (average points over last N gameweeks)."""
+    recent = points_history[-weeks:] if len(points_history) >= weeks else points_history
+    if not recent:
+        return 0.0
+    return round(sum(recent) / len(recent), 1)
+
+
+# FPL Position mappings for formation validation
+STARTING_XI_SLOTS = {
+    "GK": [1],
+    "DEF": [2, 3, 4, 5],
+    "MID": [6, 7, 8, 9, 10],
+    "FWD": [11, 12],
+}
+
+# Minimum players per position in starting XI
+MIN_STARTING = {"GK": 1, "DEF": 3, "MID": 1, "FWD": 1}
+MAX_STARTING = {"GK": 1, "DEF": 5, "MID": 5, "FWD": 3}
+TOTAL_STARTING = 11
+TOTAL_SQUAD = 15
