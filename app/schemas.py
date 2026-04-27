@@ -302,3 +302,114 @@ class SeasonResponse(BaseModel):
     second_half_cutoff: int = 20
     started: bool = False
     finished: bool = False
+
+
+# Gameweek recap schemas
+class TopScorerEntry(BaseModel):
+    player_id: int
+    player_name: str
+    team: str
+    position: str
+    points: int
+    goals: int = 0
+    assists: int = 0
+    clean_sheets: int = 0
+    saves: int = 0
+    bonus: int = 0
+    was_captain: bool = False
+    minutes: int = 0
+
+
+class CaptainLeaderEntry(BaseModel):
+    player_id: int
+    player_name: str
+    team: str
+    points: int
+
+
+class OwnershipEntry(BaseModel):
+    player_id: int
+    player_name: str
+    team: str
+    position: str
+    ownership_count: int = 0
+    ownership_pct: float = 0.0
+
+
+class PriceChangeEntry(BaseModel):
+    player_id: int
+    player_name: str
+    team: str
+    old_price: float = 0.0
+    new_price: float = 0.0
+    change: float = 0.0
+
+
+class H2HResultEntry(BaseModel):
+    match_id: int = 0
+    team1: str = ""
+    team1_points: int = 0
+    team2: str = ""
+    team2_points: int = 0
+    winner: str = "draw"
+
+
+class ChipUsedEntry(BaseModel):
+    team: str = ""
+    chip_type: str = ""
+    gameweek_id: int = 0
+
+
+class LeaderboardEntryRecap(BaseModel):
+    team_name: str = ""
+    owner: str = ""
+    points: int = 0
+
+
+class GameweekRecapResponse(BaseModel):
+    gameweek_id: int
+    gameweek_name: str = ""
+    status: str = ""
+    top_scorers: List[TopScorerEntry] = []
+    captain_leaders: List[CaptainLeaderEntry] = []
+    average_points: float = 0.0
+    most_owned: List[OwnershipEntry] = []
+    price_changes: List[PriceChangeEntry] = []
+    h2h_results: List[H2HResultEntry] = []
+    chips_used: List[ChipUsedEntry] = []
+    leaderboard: List[LeaderboardEntryRecap] = []
+
+
+# Player comparison schemas
+class PlayerComparisonResponse(BaseModel):
+    player_id: int
+    player_name: str
+    team: str
+    position: str
+    price: float
+    total_points: int = 0
+    goals: int = 0
+    assists: int = 0
+    games_played: int = 0
+    form: float = 0.0
+    recent_points: List[int] = []
+    ownership_pct: float = 0.0
+    price_history: List[dict] = []
+
+
+# Player price schemas
+class PlayerPriceResponse(BaseModel):
+    player_id: int
+    player_name: str
+    old_price: float
+    new_price: float
+    change: float
+    position: str
+    team: str
+    gameweek_id: int
+    timestamp: datetime
+
+
+class PriceChangeSummary(BaseModel):
+    changes_made: int = 0
+    gameweek_id: Optional[int] = None

@@ -144,6 +144,7 @@ class Player(Base):
     # Gameweek history
     gameweek_points = relationship("PlayerGameweekPoints", back_populates="player")
     squad_entries = relationship("SquadPlayer", back_populates="player")
+    price_history = relationship("PlayerPriceHistory", back_populates="player")
 
     __table_args__ = (
         CheckConstraint("position IN ('GK', 'DEF', 'MID', 'FWD')", name="chk_position"),
@@ -292,6 +293,7 @@ class FantasyTeam(Base):
 
     # Mini-league membership
     mini_league_memberships = relationship("MiniLeagueMember", back_populates="fantasy_team")
+    chips = relationship("Chip", back_populates="team")
 
     __table_args__ = (
         UniqueConstraint("user_id", "season", name="uq_user_season_team"),
@@ -569,3 +571,61 @@ class H2hMatch(Base):
             name="uq_h2h_match",
         ),
     )
+
+
+class Chip(Base):
+    """FPL 2025/26: All chips available 2x per season (1 per half)."""
+    __tablename__ = "chips"
+
+    id = Column(Integer, primary_key=True, index=True)
+    team_id = Column(Integer, ForeignKey("fantasy_teams.id"), nullable=False)
+    chip_type = Column(String(20), nullable=False)  # wildcard, free_hit, bench_boost, triple_captain
+    gameweek_id = Column(Integer, ForeignKey("gameweeks.id"), nullable=False)
+    status = Column(String(20), default="active")  # active, deactivated, used
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
+    team = relationship("FantasyTeam", back_populates="chips")
+    gameweek = relationship("Gameweek", overlaps="player_points")
+
+
+class PlayerPriceHistory(Base):
+    """Track price changes for each player per gameweek."""
+    __tablename__ = "player_price_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    player_id = Column(Integer, ForeignKey("players.id"), nullable=False)
+    old_price = Column(Float, nullable=False)
+    new_price = Column(Float, nullable=False)
+    gameweek_id = Column(Integer, ForeignKey("gameweeks.id"), nullable=False)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
+    player = relationship("Player", back_populates="price_history")
+    gameweek = relationship("Gameweek", overlaps="player_points")
+
+
+class GameweekStats(Base):
+    """Per-player stats for each gameweek - FPL scoring data."""
+    __tablename__ = "gameweek_stats"
+
+    id = Column(Integer, primary_key=True, index=True)
+    player_id = Column(Integer, ForeignKey("players.id"), nullable=False)
+    gameweek_id = Column(Integer, ForeignKey("gameweeks.id"), nullable=False)
+    points = Column(Integer, default=0)
+    goals = Column(Integer, default=0)
+    assists = Column(Integer, default=0)
+    clean_sheets = Column(Integer, default=0)
+    saves = Column(Integer, default=0)
+    bps = Column(Integer, default=0)  # Bonus Points System
+    minutes_played = Column(Integer, default=0)
+    was_captain = Column(Boolean, default=False)
+    yellow_cards = Column(Integer, default=0)
+    red_cards = Column(Integer, default=0)
+    penalty_missed = Column(Boolean, default=False)
+    own_goals = Column(Integer, default=0)
+    influence = Column(Float, default=0.0)
+    creativity = Column(Float, default=0.0)
+    threat = Column(Float, default=0.0)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
+    player = relationship("Player")
+    gameweek = relationship("Gameweek", overlaps="player_points")
