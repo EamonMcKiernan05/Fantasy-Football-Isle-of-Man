@@ -8,7 +8,7 @@ import logging
 
 from app.database import init_db, engine, Base
 from app.scheduler import start_scheduler, shutdown_scheduler
-from app.routes import players, teams, users, gameweeks, leaderboard, transfers, mini_leagues
+from app.routes import players, teams, users, gameweeks, leaderboard, transfers, mini_leagues, h2h
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -55,6 +55,7 @@ app.include_router(gameweeks.router)
 app.include_router(leaderboard.router)
 app.include_router(transfers.router)
 app.include_router(mini_leagues.router)
+app.include_router(h2h.router)
 
 
 @app.get("/", response_class=HTMLResponse)

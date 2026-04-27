@@ -28,6 +28,8 @@ class PlayerResponse(BaseModel):
     team_id: int
     position: str
     price: float
+    price_start: float = 5.0
+    price_change: int = 0
     apps: int = 0
     goals: int = 0
     assists: int = 0
@@ -36,7 +38,11 @@ class PlayerResponse(BaseModel):
     gw_points: Optional[int] = None
     selected_by_percent: float = 0.0
     form: float = 0.0
+    ict_index: float = 0.0
     is_injured: bool = False
+    injury_status: Optional[str] = None
+    transfers_in: int = 0
+    transfers_out: int = 0
 
     class Config:
         from_attributes = True
@@ -51,8 +57,10 @@ class PlayerDetailResponse(BaseModel):
     price: float
     price_start: float = 5.0
     price_change: int = 0
+    price_change_total: int = 0
     selected_by_percent: float = 0.0
     form: float = 0.0
+    ict_index: float = 0.0
     apps: int = 0
     goals: int = 0
     assists: int = 0
@@ -63,6 +71,11 @@ class PlayerDetailResponse(BaseModel):
     minutes_played: int = 0
     bonus: int = 0
     total_points: int = 0
+    influence: float = 0.0
+    creativity: float = 0.0
+    threat: float = 0.0
+    transfers_in: int = 0
+    transfers_out: int = 0
     team_name: str = ""
     division: str = ""
     is_injured: bool = False
@@ -121,18 +134,33 @@ class SquadPlayerResponse(BaseModel):
     total_points: int = 0
     gw_points: int = 0
     was_autosub: bool = False
+    bench_priority: int = 99
+    purchase_price: float = 0.0
 
     class Config:
         from_attributes = True
 
 
 class ChipStatus(BaseModel):
+    """FPL 2025/26: All chips available 2x per season (1 per half)."""
     wildcard_first_half_used: bool = False
     wildcard_second_half_used: bool = False
-    free_hit_used: bool = False
-    bench_boost_used: bool = False
-    triple_captain_used: bool = False
+    wildcard_first_half_available: bool = True
+    wildcard_second_half_available: bool = True
+    free_hit_first_half_used: bool = False
+    free_hit_second_half_used: bool = False
+    free_hit_first_half_available: bool = True
+    free_hit_second_half_available: bool = True
+    bench_boost_first_half_used: bool = False
+    bench_boost_second_half_used: bool = False
+    bench_boost_first_half_available: bool = True
+    bench_boost_second_half_available: bool = True
+    triple_captain_first_half_used: bool = False
+    triple_captain_second_half_used: bool = False
+    triple_captain_first_half_available: bool = True
+    triple_captain_second_half_available: bool = True
     active_chip: Optional[str] = None
+    current_half: str = "first"
 
 
 class FantasyTeamResponse(BaseModel):
@@ -147,12 +175,14 @@ class FantasyTeamResponse(BaseModel):
     squad: List[SquadPlayerResponse] = []
     current_gw_transfers: int = 0
     transfer_deadline_exceeded: bool = False
+    season: str = ""
 
 
 # Transfer schemas
 class TransferRequest(BaseModel):
     player_in_id: int
     player_out_id: int
+    user_id: int
     use_wildcard: bool = False
 
 
@@ -174,6 +204,7 @@ class CaptainRequest(BaseModel):
 
 class ChipRequest(BaseModel):
     chip: str  # wildcard, free_hit, bench_boost, triple_captain
+    cancel: bool = False  # If True, cancel the chip instead of activating
 
 
 # Gameweek schemas
@@ -245,6 +276,21 @@ class MiniLeagueMemberResponse(BaseModel):
     team_name: str
     total_points: int
     rank: Optional[int] = None
+
+
+# H2H schemas
+class H2hLeagueCreate(BaseModel):
+    name: str = Field(..., min_length=2, max_length=200)
+    format_type: str = Field(default="round_robin", description="round_robin or knockout")
+
+
+class H2hMatchResponse(BaseModel):
+    id: int
+    gameweek: int
+    participant_a: dict
+    participant_b: dict
+    status: str
+    result: Optional[str] = None
 
 
 # Season schemas

@@ -1,13 +1,13 @@
 """FPL-accurate scoring engine for Fantasy Football Isle of Man.
 
-Implements the official Fantasy Premier League scoring rules adapted for
+Implements the official Fantasy Premier League 2025/26 scoring rules adapted for
 Isle of Man leagues where individual match stats may be limited.
 
 FPL Scoring Rules (2025/26):
 - GK Goal: +6, DEF Goal: +6, MID Goal: +5, FWD Goal: +4
 - Assist: +3 (all positions)
 - Clean sheet GK: +4, Clean sheet DEF: +4, Clean sheet MID: +3, FWD: N/A
-- Bonus points: +1/+2/+3 based on BPS ranking
+- Bonus points: +1/+2/+3 based on BPS ranking (per fixture)
 - Played 60+ mins: +2
 - Save: +1 (GK only)
 - Penalty save: +5 (GK only)
@@ -19,6 +19,12 @@ FPL Scoring Rules (2025/26):
 - Goals conceded: -1 (GK/DEF), max -3
 - Influence/Creativity/Threat (ICT) used for tiebreaker
 """
+
+# FPL constants
+TRANSFER_HIT = 4  # -4 per extra transfer
+MAX_ROLLOVER_TRANSFERS = 4  # FPL: max 4 rollover (5 total with current GW)
+MAX_TRANSFERS_PER_GW = 20  # FPL: max 20 transfers per GW (excluding chips)
+FREE_TRANSFER_PER_GW = 1  # FPL: 1 free transfer per gameweek
 
 
 def calculate_player_points(
@@ -58,11 +64,11 @@ def calculate_player_points(
         }.get(position, 5)
         points += goals_scored * goal_points
 
-        # Penalty goal bonus
+        # Penalty goal bonus (+2 for scoring a penalty, FPL rule)
         if was_penalty_goal:
             points += 2
 
-    # Assists
+    # Assists (+3 for any position)
     points += assists * 3
 
     # Clean sheet - position dependent
@@ -71,20 +77,20 @@ def calculate_player_points(
             "GK": 4,
             "DEF": 4,
             "MID": 3,
-            "FWD": 0,
+            "FWD": 0,  # Forwards don't get clean sheet points
         }.get(position, 0)
         points += clean_sheet_points
 
     # Goals conceded (GK and DEF only)
     if position in ("GK", "DEF"):
-        conceded_penalty = min(goals_conceded, 3)  # Max 3 point penalty
+        conceded_penalty = min(goals_conceded, 3)  # Max -3 penalty
         points -= conceded_penalty
 
-    # Saves (GK only)
+    # Saves (GK only, +1 per 3 saves in official FPL, simplified to +1 each)
     if position == "GK":
         points += saves
 
-        # Penalty saves (GK only)
+        # Penalty saves (GK only, +5 each)
         points += penalties_saved * 5
 
     # Cards
@@ -97,7 +103,7 @@ def calculate_player_points(
     if own_goal:
         points -= 2
 
-    # Penalty missed
+    # Penalty missed (-2 each)
     points -= penalties_missed * 2
 
     # Bonus points (awarded after BPS calculation)
@@ -138,7 +144,7 @@ def calculate_bps(
     if minutes_played < 1:
         return 0
 
-    # Goals (heavy weight)
+    # Goals (heavy weight, position-dependent)
     if goals_scored > 0:
         if position == "FWD":
             bps += goals_scored * 8
@@ -148,12 +154,12 @@ def calculate_bps(
             bps += goals_scored * 12
 
         if was_penalty_goal:
-            bps += 2
+            bps += 2  # Extra BPS for penalty goals
 
     # Assists
     bps += assists * 8
 
-    # Clean sheet
+    # Clean sheet (position-dependent)
     if clean_sheet:
         if position == "GK":
             bps += 10
@@ -187,7 +193,7 @@ def calculate_bps(
 
 
 def award_bonus_points(players_with_bps: list) -> dict:
-    """Award bonus points to top 3 players by BPS.
+    """Award bonus points to top 3 players by BPS in a fixture.
 
     Args:
         players_with_bps: List of dicts with 'player_id' and 'bps' keys.
@@ -231,7 +237,7 @@ def calculate_transfer_hit(
 
     Rules:
     - 1 free transfer per gameweek
-    - Unused transfers rollover (max 5)
+    - Unused transfers rollover (max 4)
     - Extra transfers: -4 points each
     - Wildcard: no transfer limit, no point hit
     """
@@ -242,7 +248,7 @@ def calculate_transfer_hit(
         return 0
 
     extra = transfers_made - free_transfers_available
-    return extra * 4  # -4 per extra transfer
+    return extra * TRANSFER_HIT  # -4 per extra transfer
 
 
 def calculate_gameweek_score(
@@ -260,7 +266,7 @@ def calculate_gameweek_score(
         captain_id: SquadPlayer ID of captain
         vice_captain_id: SquadPlayer ID of vice-captain
         transfers_cost: Point hit from transfers
-        chip: Active chip name
+        chip: Active chip name (bench_boost, triple_captain, free_hit, wildcard)
 
     Returns:
         Dict with total, captain, bench_boost, transfer details.
@@ -281,6 +287,9 @@ def calculate_gameweek_score(
     elif not captain_entry:
         effective_captain_id = vice_captain_id
 
+    starting_points = 0
+    bench_pts = 0
+
     for sp in squad_points:
         base = sp.get("base_points", 0)
         is_starting = sp.get("is_starting", True)
@@ -288,7 +297,7 @@ def calculate_gameweek_score(
 
         # Determine if this player contributes
         if chip == "bench_boost":
-            # All 15 players contribute
+            # All 15 players contribute (bench boost chip)
             contributes = did_play
         else:
             contributes = is_starting and did_play
@@ -305,6 +314,11 @@ def calculate_gameweek_score(
         else:
             points = base
 
+        if is_starting:
+            starting_points += points
+        else:
+            bench_pts += points
+
         total += points
 
     # Apply transfer hit
@@ -312,13 +326,52 @@ def calculate_gameweek_score(
 
     return {
         "total_points": total,
+        "starting_points": starting_points,
+        "bench_points": bench_pts,
         "captain_points": captain_points,
         "transfers_cost": transfers_cost,
         "chip": chip,
     }
 
 
-def update_player_price(selected_by_percent: float, gw_points: int, current_price: float) -> float:
+def calculate_selling_price(purchase_price: float, current_price: float) -> float:
+    """Calculate FPL selling price with half-increase rule.
+
+    FPL Rule:
+    If a player's price rises after purchase, you keep half of the increase
+    when selling, rounded down to the nearest £0.1m.
+
+    Example: bought for 7.5m, now worth 7.8m -> selling price = 7.5 + floor((7.8-7.5)/2) = 7.6m
+    Example: bought for 5.0m, now worth 4.5m -> selling price = 4.5m (no half rule for decreases)
+
+    Args:
+        purchase_price: The price when this manager bought the player
+        current_price: The player's current market price
+
+    Returns:
+        The effective selling price for budget calculations
+    """
+    if current_price > purchase_price:
+        # Half-increase rule: keep half the gain, rounded down to 0.1m
+        increase = current_price - purchase_price
+        half_increase = floor_to_01(increase / 2)
+        return purchase_price + half_increase
+    else:
+        # No increase -> selling at current price (or lower)
+        return current_price
+
+
+def floor_to_01(value: float) -> float:
+    """Round down to nearest 0.1 (FPL rounding)."""
+    import math
+    return math.floor(value * 10) / 10
+
+
+def update_player_price(
+    selected_by_change: float,
+    gw_points: int,
+    current_price: float,
+) -> float:
     """Calculate player price change for a gameweek.
 
     FPL price rules:
@@ -326,18 +379,30 @@ def update_player_price(selected_by_percent: float, gw_points: int, current_pric
     - -0.1m for every 50% decrease
     - Price rounded to nearest 0.1m
     - Min price 1.0m, max 15.0m
-    """
-    # Price change based on selection percentage
-    change = 0
 
-    if selected_by_percent >= 50:
+    Args:
+        selected_by_change: Change in selection percentage (can be negative)
+        gw_points: Points scored this gameweek (minor influence)
+        current_price: Current price in millions
+
+    Returns:
+        New price capped to [1.0, 15.0]
+    """
+    change = 0.0
+
+    # Primary: ownership change drives price
+    if selected_by_change >= 50:
+        change += 0.2
+    elif selected_by_change >= 25:
         change += 0.1
-    elif selected_by_percent >= 30:
-        change += 0.05
-    elif selected_by_percent <= -50:
+    elif selected_by_change <= -50:
+        change -= 0.2
+    elif selected_by_change <= -25:
         change -= 0.1
-    elif selected_by_percent <= -30:
-        change -= 0.05
+
+    # Secondary: high scorers get slight boost
+    if gw_points >= 20:
+        change += 0.1
 
     new_price = current_price + change
     return round(max(1.0, min(15.0, new_price)), 1)
@@ -349,6 +414,14 @@ def calculate_form(points_history: list, weeks: int = 5) -> float:
     if not recent:
         return 0.0
     return round(sum(recent) / len(recent), 1)
+
+
+def calculate_ict_index(influence: float, creativity: float, threat: float) -> float:
+    """Calculate ICT index (Influence + Creativity + Threat).
+
+    FPL: ICT = (influence + creativity + threat) / 10
+    """
+    return round((influence + creativity + threat) / 10, 1)
 
 
 # FPL Position mappings for formation validation
@@ -441,20 +514,20 @@ def auto_sub_squad(
     ]
     non_playing_starters.sort(key=lambda sp: POSITION_PRIORITY.get(sp["player"]["position"], 0), reverse=True)
 
-    # Available bench players, sort by position priority (sub in highest position first)
+    # Available bench players, sort by bench_priority then position priority
     bench = [sp for sp in squad if not sp.get("is_starting")]
-    bench.sort(key=lambda sp: POSITION_PRIORITY.get(sp["player"]["position"], 0), reverse=True)
+    bench.sort(key=lambda sp: (sp.get("bench_priority", 99), -POSITION_PRIORITY.get(sp["player"]["position"], 0)))
 
-    bench_idx = 0
     for starter in non_playing_starters:
         starter_pos = starter["player"]["position"]
 
         # Find a suitable replacement from bench
         replacement = None
-        used_bench = []
 
-        for i, bench_player in enumerate(bench):
+        for bench_player in bench:
             if bench_player["player_id"] in non_playing_ids:
+                continue
+            if bench_player.get("is_starting"):
                 continue
             bench_pos = bench_player["player"]["position"]
 
@@ -462,27 +535,24 @@ def auto_sub_squad(
             if starter_pos == "GK":
                 if bench_pos == "GK":
                     replacement = bench_player
-                    used_bench.append(i)
                     break
                 continue
 
             # Direct position match
             if bench_pos == starter_pos:
                 replacement = bench_player
-                used_bench.append(i)
                 break
 
             # Flex: DEF <-> MID can swap
             if starter_pos in ("DEF", "MID") and bench_pos in ("DEF", "MID"):
                 replacement = bench_player
-                used_bench.append(i)
                 break
 
         if replacement:
             starter["is_starting"] = False
-            starter["was_autosubbed"] = True
+            starter["was_autosub"] = True
             replacement["is_starting"] = True
-            replacement["was_autosubbed"] = True
+            replacement["was_autosub"] = True
 
     return squad
 
@@ -490,22 +560,206 @@ def auto_sub_squad(
 def calculate_free_transfers(
     current_free: int,
     transfers_made: int,
-    max_free: int = 2,
+    max_free: int = MAX_ROLLOVER_TRANSFERS + 1,  # 5 total (4 rollover + 1 current)
     is_wildcard: bool = False,
 ) -> int:
     """Calculate free transfers after a gameweek.
 
     FPL rules:
-    - Get 1 free transfer per gameweek (plus rollover, max 2)
-    - Wildcard resets to 1 (or 2 if already had rollover)
+    - Get 1 free transfer per gameweek (plus rollover, max 5 total)
+    - Wildcard resets to 1
+    - Free Hit doesn't affect free transfers
 
     Returns:
-        New free transfer count.
+        New free transfer count for next GW.
     """
     if is_wildcard:
-        return max_free  # Reset to max on wildcard
+        return 1  # Reset to 1 on wildcard (gets +1 next GW = 2 max)
 
     used = transfers_made
     remaining = max(0, current_free - used)
     # Add 1 for the next gameweek, cap at max_free
     return min(max_free, remaining + 1)
+
+
+def check_chip_availability(
+    fantasy_team,
+    chip_name: str,
+    current_gw_number: int,
+    season_cutoff: int = 19,
+) -> tuple[bool, str]:
+    """Check if a chip is available to use.
+
+    FPL 2025/26 rules:
+    - All chips (except Wildcard) are available 2x per season
+    - First half: GW 1-19, Second half: GW 20+
+    - Only one chip per gameweek
+    - Free Hit cannot be used in consecutive gameweeks
+
+    Returns:
+        (available: bool, message: str)
+    """
+    # Check if already using a chip this GW
+    if fantasy_team.active_chip:
+        return False, f"Already using {fantasy_team.active_chip} this gameweek"
+
+    gw_num = current_gw_number or 1
+    is_first_half = gw_num <= season_cutoff
+
+    if chip_name == "wildcard":
+        if is_first_half:
+            if fantasy_team.wildcard_first_half:
+                return False, "First half wildcard already used"
+            return True, "Available"
+        else:
+            if fantasy_team.wildcard_second_half:
+                return False, "Second half wildcard already used"
+            return True, "Available"
+
+    elif chip_name == "free_hit":
+        if is_first_half:
+            if fantasy_team.free_hit_first_half:
+                return False, "First half Free Hit already used"
+            return True, "Available"
+        else:
+            if fantasy_team.free_hit_second_half:
+                return False, "Second half Free Hit already used"
+            return True, "Available"
+
+    elif chip_name == "bench_boost":
+        if is_first_half:
+            if fantasy_team.bench_boost_first_half:
+                return False, "First half Bench Boost already used"
+            return True, "Available"
+        else:
+            if fantasy_team.bench_boost_second_half:
+                return False, "Second half Bench Boost already used"
+            return True, "Available"
+
+    elif chip_name == "triple_captain":
+        if is_first_half:
+            if fantasy_team.triple_captain_first_half:
+                return False, "First half Triple Captain already used"
+            return True, "Available"
+        else:
+            if fantasy_team.triple_captain_second_half:
+                return False, "Second half Triple Captain already used"
+            return True, "Available"
+
+    return False, f"Unknown chip: {chip_name}"
+
+
+def activate_chip(
+    fantasy_team,
+    chip_name: str,
+    current_gw_number: int,
+    season_cutoff: int = 19,
+) -> tuple[bool, str]:
+    """Activate a chip for the current gameweek.
+
+    Returns:
+        (success: bool, message: str)
+    """
+    available, message = check_chip_availability(fantasy_team, chip_name, current_gw_number, season_cutoff)
+    if not available:
+        return False, message
+
+    gw_num = current_gw_number or 1
+    is_first_half = gw_num <= season_cutoff
+
+    # Set active chip
+    fantasy_team.active_chip = chip_name
+
+    # Mark the appropriate half as used
+    if chip_name == "wildcard":
+        if is_first_half:
+            fantasy_team.wildcard_first_half = True
+        else:
+            fantasy_team.wildcard_second_half = True
+    elif chip_name == "free_hit":
+        if is_first_half:
+            fantasy_team.free_hit_first_half = True
+        else:
+            fantasy_team.free_hit_second_half = True
+    elif chip_name == "bench_boost":
+        if is_first_half:
+            fantasy_team.bench_boost_first_half = True
+        else:
+            fantasy_team.bench_boost_second_half = True
+    elif chip_name == "triple_captain":
+        if is_first_half:
+            fantasy_team.triple_captain_first_half = True
+        else:
+            fantasy_team.triple_captain_second_half = True
+
+    return True, f"{chip_name.replace('_', ' ').title()} activated for GW {gw_num}"
+
+
+def cancel_chip(fantasy_team, chip_name: str, current_gw_number: int, season_cutoff: int = 19) -> tuple[bool, str]:
+    """Cancel a chip before the deadline.
+
+    FPL rules: Bench Boost, Triple Captain, Wildcard can be cancelled before deadline.
+    Free Hit cannot be cancelled once confirmed.
+
+    Returns:
+        (success: bool, message: str)
+    """
+    if fantasy_team.active_chip != chip_name:
+        return False, f"No active chip to cancel (currently: {fantasy_team.active_chip})"
+
+    # Free Hit cannot be cancelled
+    if chip_name == "free_hit":
+        return False, "Free Hit cannot be cancelled once confirmed"
+
+    # Reset the chip usage
+    gw_num = current_gw_number or 1
+    is_first_half = gw_num <= season_cutoff
+
+    if chip_name == "wildcard":
+        if is_first_half:
+            fantasy_team.wildcard_first_half = False
+        else:
+            fantasy_team.wildcard_second_half = False
+    elif chip_name == "bench_boost":
+        if is_first_half:
+            fantasy_team.bench_boost_first_half = False
+        else:
+            fantasy_team.bench_boost_second_half = False
+    elif chip_name == "triple_captain":
+        if is_first_half:
+            fantasy_team.triple_captain_first_half = False
+        else:
+            fantasy_team.triple_captain_second_half = False
+
+    fantasy_team.active_chip = None
+    return True, f"{chip_name.replace('_', ' ').title()} cancelled"
+
+
+def get_chip_status(fantasy_team, current_gw_number: int = 0, season_cutoff: int = 19) -> dict:
+    """Get comprehensive chip status for a fantasy team.
+
+    Returns dict with all chip availability info.
+    """
+    gw_num = current_gw_number or 1
+    is_first_half = gw_num <= season_cutoff
+
+    return {
+        "wildcard_first_half_used": fantasy_team.wildcard_first_half,
+        "wildcard_second_half_used": fantasy_team.wildcard_second_half,
+        "wildcard_first_half_available": not fantasy_team.wildcard_first_half,
+        "wildcard_second_half_available": not fantasy_team.wildcard_second_half,
+        "free_hit_first_half_used": fantasy_team.free_hit_first_half,
+        "free_hit_second_half_used": fantasy_team.free_hit_second_half,
+        "free_hit_first_half_available": not fantasy_team.free_hit_first_half,
+        "free_hit_second_half_available": not fantasy_team.free_hit_second_half,
+        "bench_boost_first_half_used": fantasy_team.bench_boost_first_half,
+        "bench_boost_second_half_used": fantasy_team.bench_boost_second_half,
+        "bench_boost_first_half_available": not fantasy_team.bench_boost_first_half,
+        "bench_boost_second_half_available": not fantasy_team.bench_boost_second_half,
+        "triple_captain_first_half_used": fantasy_team.triple_captain_first_half,
+        "triple_captain_second_half_used": fantasy_team.triple_captain_second_half,
+        "triple_captain_first_half_available": not fantasy_team.triple_captain_first_half,
+        "triple_captain_second_half_available": not fantasy_team.triple_captain_second_half,
+        "active_chip": fantasy_team.active_chip,
+        "current_half": "first" if is_first_half else "second",
+    }

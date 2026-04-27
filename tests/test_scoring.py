@@ -361,7 +361,7 @@ class TestAutoSub:
         assert len(starters) == 11
         # No autosub flags set
         for sp in result:
-            assert sp.get("was_autosubbed") is not True
+            assert sp.get("was_autosub") is not True
 
     def test_fwd_out_mid_in(self):
         squad = self._make_squad()
@@ -369,7 +369,7 @@ class TestAutoSub:
         result = scoring.auto_sub_squad(squad, [11], formation)
         subbed_out = next(sp for sp in result if sp["player_id"] == 11)
         assert subbed_out["is_starting"] is False
-        assert subbed_out.get("was_autosubbed") is True
+        assert subbed_out.get("was_autosub") is True
 
     def test_gk_out_gk_in(self):
         squad = self._make_squad()
@@ -400,11 +400,12 @@ class TestFreeTransfers:
     """Test free transfer calculation."""
 
     def test_wildcard_resets(self):
-        assert scoring.calculate_free_transfers(0, 5, is_wildcard=True) == 2
+        # Wildcard resets to 1 (gets +1 next GW = 2 max)
+        assert scoring.calculate_free_transfers(0, 5, is_wildcard=True) == 1
 
     def test_rollover(self):
-        # Start with 2 free, make 0, get 1, cap at 2
-        assert scoring.calculate_free_transfers(2, 0) == 2
+        # Start with 2 free, make 0, get 1, cap at 5 (FPL max)
+        assert scoring.calculate_free_transfers(2, 0) == 3
 
     def test_use_one_get_one(self):
         # Start with 2, use 1, get 1, still 2
@@ -474,11 +475,15 @@ class TestModels:
         ft = FantasyTeam(user_id=user.id, name="Test FC", season="2025-26")
         db.add(ft)
         db.commit()
+        # FPL 2025/26: All chips 2x per season (1 per half)
         assert ft.wildcard_first_half is False
         assert ft.wildcard_second_half is False
-        assert ft.free_hit_used is False
-        assert ft.bench_boost_used is False
-        assert ft.triple_captain_used is False
+        assert ft.free_hit_first_half is False
+        assert ft.free_hit_second_half is False
+        assert ft.bench_boost_first_half is False
+        assert ft.bench_boost_second_half is False
+        assert ft.triple_captain_first_half is False
+        assert ft.triple_captain_second_half is False
         assert ft.free_transfers == 1
         assert ft.budget_remaining == 100.0
         db.close()
@@ -577,12 +582,12 @@ class TestAPIEndpoints:
         client.post("/api/users/register", json={
             "username": "testuser",
             "email": "test@test.com",
-            "password": "password123",
+            "password": "pass123",
         })
         response = client.post("/api/users/register", json={
             "username": "testuser",
             "email": "test2@test.com",
-            "password": "password123",
+            "password": "pass123",
         })
         assert response.status_code == 400
 
@@ -590,11 +595,11 @@ class TestAPIEndpoints:
         client.post("/api/users/register", json={
             "username": "testuser",
             "email": "test@test.com",
-            "password": "password123",
+            "password": "pass123",
         })
         response = client.post("/api/users/login", data={
             "username": "testuser",
-            "password": "password123",
+            "password": "pass123",
         })
         assert response.status_code == 200
         assert response.json()["username"] == "testuser"

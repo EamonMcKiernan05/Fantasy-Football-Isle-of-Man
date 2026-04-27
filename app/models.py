@@ -2,6 +2,18 @@
 
 Player-based FPL system - each manager picks individual players from IOM leagues.
 Matches FPL 2025/26 rules as closely as possible.
+
+FPL 2025/26 Key Rules:
+- Squad: 15 players (2 GK, 5 DEF, 5 MID, 3 FWD), £100m budget
+- Max 3 players per club
+- 1 free transfer per GW, rollover max 4 (max 5 total with current GW)
+- Max 20 transfers per GW (excluding chips)
+- Wildcard: 2x/season (GW 1-19 and GW 20-38)
+- Free Hit: 2x/season (GW 1-19 and GW 20-38)
+- Bench Boost: 2x/season (GW 1-19 and GW 20-38)
+- Triple Captain: 2x/season (GW 1-19 and GW 20-38)
+- Player price: +£0.1m per 50% ownership increase, -£0.1m per 50% decrease
+- Half-increase rule: selling price = purchase_price + floor((current_price - purchase_price) / 2)
 """
 from sqlalchemy import (
     Column, Integer, String, Float, Boolean, ForeignKey,
@@ -85,14 +97,15 @@ class Player(Base):
     # FPL-style price in millions (e.g. 5.0 = 5.0m, increments of 0.1m)
     price = Column(Float, default=5.0, nullable=False)
     price_start = Column(Float, default=5.0)  # Starting price for the season
-    price_change = Column(Integer, default=0)  # Integer for 0.1m increments
+    price_change = Column(Integer, default=0)  # Integer for 0.1m increments (positive/negative)
     price_change_event = Column(Integer, default=0)  # Price change last GW
-    price_change_fall = Column(Integer, default=0)
-    price_change_total = Column(Integer, default=0)
+    price_change_fall = Column(Integer, default=0)  # Negative change (integer)
+    price_change_total = Column(Integer, default=0)  # Total change from start (integer)
 
     # Selection stats (FPL-style)
     selected_by_percent = Column(Float, default=0.0)  # % of managers owning
     form = Column(Float, default=0.0)  # Average points over last 5 GWs
+    in_dreamteam = Column(Boolean, default=False)  # Was in any dream team this season
 
     # Season stats
     apps = Column(Integer, default=0)  # appearances
@@ -116,6 +129,10 @@ class Player(Base):
     # Derived stats
     goals_per_game = Column(Float, default=0.0)
     total_points_season = Column(Integer, default=0)
+
+    # Transfers in/out (FPL style)
+    transfers_in = Column(Integer, default=0)  # Managers adding this player
+    transfers_out = Column(Integer, default=0)  # Managers dropping this player
 
     # Status
     is_active = Column(Boolean, default=True)
@@ -212,12 +229,14 @@ class User(Base):
 class FantasyTeam(Base):
     """A user's fantasy team (squad of individual players).
 
-    FPL rules:
-    - 15 players max
-    - Budget: 100.0m
-    - 1 free transfer per GW, rollover max 5
+    FPL 2025/26 rules:
+    - 15 players max, £100m budget
+    - 1 free transfer per GW, rollover max 4 (max 5 total)
     - 2 wildcards per season (GW 1-19 and GW 20-38)
-    - 1 free hit, 1 bench boost, 1 triple captain
+    - 2 free hits per season (GW 1-19 and GW 20-38)
+    - 2 bench boosts per season (GW 1-19 and GW 20-38)
+    - 2 triple captains per season (GW 1-19 and GW 20-38)
+    - Max 20 transfers per GW (excluding chips)
     """
     __tablename__ = "fantasy_teams"
 
@@ -236,27 +255,36 @@ class FantasyTeam(Base):
     overall_rank = Column(Integer, nullable=True)
     league_rank = Column(Integer, nullable=True)
 
-    # Transfers: 1 free per GW, max 5 rollover
+    # Transfers: 1 free per GW, max 4 rollover (5 total with current GW)
     free_transfers = Column(Integer, default=1)
     free_transfers_next_gw = Column(Integer, default=1)
     current_gw_transfers = Column(Integer, default=0)
     transfer_deadline_exceeded = Column(Boolean, default=False)
     rollover_transfers = Column(Integer, default=0)  # Rolled over from previous GW
 
+    # FPL 2025/26: ALL chips are 2x per season (1 per half)
     # Wildcard: 2 per season (first half GW 1-19, second half GW 20-38)
     wildcard_first_half = Column(Boolean, default=False)
     wildcard_second_half = Column(Boolean, default=False)
 
-    # Chips (FPL-style) - each used once per season
-    free_hit_used = Column(Boolean, default=False)
-    bench_boost_used = Column(Boolean, default=False)
-    triple_captain_used = Column(Boolean, default=False)
+    # Free Hit: 2 per season (first half GW 1-19, second half GW 20-38)
+    free_hit_first_half = Column(Boolean, default=False)
+    free_hit_second_half = Column(Boolean, default=False)
 
-    # Active chip this gameweek
+    # Bench Boost: 2 per season (first half GW 1-19, second half GW 20-38)
+    bench_boost_first_half = Column(Boolean, default=False)
+    bench_boost_second_half = Column(Boolean, default=False)
+
+    # Triple Captain: 2 per season (first half GW 1-19, second half GW 20-38)
+    triple_captain_first_half = Column(Boolean, default=False)
+    triple_captain_second_half = Column(Boolean, default=False)
+
+    # Active chip this gameweek (can be cancelled before deadline)
     active_chip = Column(String(20), nullable=True)
 
-    # Free Hit: store original squad to revert
+    # Free Hit: store original squad to revert next GW
     free_hit_backup = Column(Text, nullable=True)  # JSON backup of original squad
+    free_hit_revert_gw = Column(Integer, nullable=True)  # GW number to revert to
 
     # Squad
     squad = relationship("SquadPlayer", back_populates="fantasy_team")
@@ -289,6 +317,10 @@ class SquadPlayer(Base):
     is_vice_captain = Column(Boolean, default=False)
     is_starting = Column(Boolean, default=True)
 
+    # FPL-style: purchase price for half-increase rule
+    purchase_price = Column(Float, default=0.0)  # Price when bought by this manager
+    selling_price = Column(Float, default=0.0)   # Selling price (current or half-increase)
+
     # Total points accumulated for this manager
     total_points = Column(Integer, default=0)
 
@@ -297,6 +329,9 @@ class SquadPlayer(Base):
 
     # Was this player an auto-sub?
     was_autosub = Column(Boolean, default=False)
+
+    # Bench priority (FPL style: lower number = higher priority for auto-sub)
+    bench_priority = Column(Integer, default=99)
 
     added_at = Column(DateTime, default=datetime.utcnow)
 
@@ -318,7 +353,7 @@ class PlayerGameweekPoints(Base):
     player = relationship("Player", back_populates="gameweek_points")
 
     gameweek_id = Column(Integer, ForeignKey("gameweeks.id"), nullable=False)
-    gameweek = relationship("Gameweek")
+    gameweek = relationship("Gameweek", overlaps="player_points")
 
     # Match context
     opponent_team = Column(String(200), nullable=True)
@@ -346,6 +381,11 @@ class PlayerGameweekPoints(Base):
 
     # BPS (Bonus Points System)
     bps_score = Column(Integer, default=0)
+
+    # ICT components for this gameweek
+    influence_gw = Column(Float, default=0.0)
+    creativity_gw = Column(Float, default=0.0)
+    threat_gw = Column(Float, default=0.0)
 
     __table_args__ = (
         UniqueConstraint("player_id", "gameweek_id", name="uq_player_gw"),
@@ -400,6 +440,7 @@ class Transfer(Base):
 
     points_scored_by_outgoing = Column(Integer, default=0)
     is_wildcard = Column(Boolean, default=False)
+    is_free_hit = Column(Boolean, default=False)
 
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -453,3 +494,78 @@ class Season(Base):
     started = Column(Boolean, default=False)
     finished = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class H2hLeague(Base):
+    """Head-to-Head league container."""
+    __tablename__ = "h2h_leagues"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(200), nullable=False)
+    season = Column(String(20), nullable=False)
+    format_type = Column(String(20), default="round_robin")  # round_robin, knockout
+    admin_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    started = Column(Boolean, default=False)
+    group_stage_rounds = Column(Integer, default=0)
+    knockout_stage = Column(Boolean, default=False)
+    invite_code = Column(String(10), unique=True, nullable=True, index=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    participants = relationship("H2hParticipant", back_populates="h2h_league")
+    matches = relationship("H2hMatch", back_populates="h2h_league")
+
+
+class H2hParticipant(Base):
+    """A fantasy team participating in an H2H league."""
+    __tablename__ = "h2h_participants"
+
+    id = Column(Integer, primary_key=True, index=True)
+    h2h_league_id = Column(Integer, ForeignKey("h2h_leagues.id"), nullable=False)
+    h2h_league = relationship("H2hLeague", back_populates="participants")
+
+    fantasy_team_id = Column(Integer, ForeignKey("fantasy_teams.id"), nullable=False)
+    fantasy_team = relationship("FantasyTeam")
+
+    # H2H record
+    h2h_points = Column(Integer, default=0)
+    wins = Column(Integer, default=0)
+    draws = Column(Integer, default=0)
+    losses = Column(Integer, default=0)
+    byes = Column(Integer, default=0)
+    goal_difference = Column(Integer, default=0)  # Total GW points diff across matches
+
+    __table_args__ = (
+        UniqueConstraint("h2h_league_id", "fantasy_team_id", name="uq_h2h_participant"),
+    )
+
+
+class H2hMatch(Base):
+    """An H2H matchup between two fantasy teams."""
+    __tablename__ = "h2h_matches"
+
+    id = Column(Integer, primary_key=True, index=True)
+    h2h_league_id = Column(Integer, ForeignKey("h2h_leagues.id"), nullable=False)
+    h2h_league = relationship("H2hLeague", back_populates="matches")
+
+    gameweek_number = Column(Integer, nullable=False)
+    participant_a_id = Column(Integer, ForeignKey("h2h_participants.id"), nullable=False)
+    participant_b_id = Column(Integer, ForeignKey("h2h_participants.id"), nullable=False)
+
+    participant_a = relationship("H2hParticipant", foreign_keys=[participant_a_id])
+    participant_b = relationship("H2hParticipant", foreign_keys=[participant_b_id])
+
+    # Match result
+    score_a = Column(Integer, nullable=True)
+    score_b = Column(Integer, nullable=True)
+    status = Column(String(20), default="pending")  # pending, finished, bye, cancelled
+    result = Column(String(10), nullable=True)  # win_a, win_b, draw, bye_a, bye_b
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "h2h_league_id", "gameweek_number", "participant_a_id", "participant_b_id",
+            name="uq_h2h_match",
+        ),
+    )

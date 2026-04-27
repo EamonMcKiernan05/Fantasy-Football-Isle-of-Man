@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fantasy Football Isle of Man</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="nav-brand">
+            <a href="#" class="nav-link" data-page="home">
+                <span class="logo">🏴󠁧󠁢󠁭󠁡󠁿</span> Fantasy Football IOM
+            </a>
+        </div>
+        <div class="nav-links">
+            <a href="#" class="nav-link" data-page="home">Home</a>
+            <a href="#" class="nav-link" data-page="my-team">My Team</a>
+            <a href="#" class="nav-link" data-page="transfers">Transfers</a>
+            <a href="#" class="nav-link" data-page="players">Players</a>
+            <a href="#" class="nav-link" data-page="gameweeks">Gameweeks</a>
+            <a href="#" class="nav-link" data-page="leaderboard">Leaderboard</a>
+            <a href="#" class="nav-link" data-page="leagues">Leagues</a>
+            <a href="#" class="nav-link" data-page="history">History</a>
+        </div>
+        <div class="nav-auth" id="nav-auth">
+            <a href="#" class="nav-link" data-page="login">Login</a>
+            <a href="#" class="nav-link" data-page="register">Register</a>
+        </div>
+        <div class="nav-user" id="nav-user" style="display:none;">
+            <span id="nav-points" style="color:var(--green);margin-right:1rem;">0 pts</span>
+            <span id="nav-username"></span>
+            <button onclick="logout()" class="btn btn-sm" style="margin-left:0.5rem;">Logout</button>
+        </div>
+    </nav>
+
+    <!-- Pages -->
+    <main class="container">
+        <!-- Home -->
+        <div id="page-home" class="page">
+            <div class="gw-banner" id="gw-banner">
+                <p>Loading current gameweek...</p>
+            </div>
+
+            <div class="hero">
+                <h1>Fantasy Football Isle of Man</h1>
+                <p>Pick your team of 15 players from the Isle of Man leagues. Score points based on real match performance. Compete against other managers!</p>
+                <div class="hero-features">
+                    <div class="feature-card">
+                        <h3>🏆 Classic</h3>
+                        <p>Accumulate points across the season to climb the global leaderboard</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>⚔️ Head-to-Head</h3>
+                        <p>Face off against opponents each gameweek. Win: 2pts, Draw: 1pt</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>👥 Mini-Leagues</h3>
+                        <p>Create private leagues with friends and colleagues</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="rules-section">
+                <h2>How to Play</h2>
+                <div class="rules-grid">
+                    <div class="rule-card">
+                        <h4>Squad of 15</h4>
+                        <p>2 GK, 5 DEF, 5 MID, 3 FWD within a £100m budget</p>
+                    </div>
+                    <div class="rule-card">
+                        <h4>Starting XI</h4>
+                        <p>1 GK, 3-5 DEF, 1-5 MID, 1-3 FWD in any formation</p>
+                    </div>
+                    <div class="rule-card">
+                        <h4>Captain</h4>
+                        <p>Captain gets 2x points (3x with Triple Captain chip)</p>
+                    </div>
+                    <div class="rule-card">
+                        <h4>Transfers</h4>
+                        <p>1 free per gameweek. Rollover max 4. Extra = -4pts</p>
+                    </div>
+                    <div class="rule-card">
+                        <h4>Chips</h4>
+                        <p>Wildcard, Free Hit, Bench Boost, Triple Captain (2x each)</p>
+                    </div>
+                    <div class="rule-card">
+                        <h4>Bonus Points</h4>
+                        <p>Top 3 players per fixture get 3, 2, 1 bonus points</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Login -->
+        <div id="page-login" class="page">
+            <div class="auth-form">
+                <h2>Login</h2>
+                <form onsubmit="handleLogin(event)">
+                    <div class="form-group">
+                        <label>Username</label>
+                        <input type="text" id="login-username" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Password</label>
+                        <input type="password" id="login-password" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Login</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Register -->
+        <div id="page-register" class="page">
+            <div class="auth-form">
+                <h2>Register</h2>
+                <form onsubmit="handleRegister(event)">
+                    <div class="form-group">
+                        <label>Username</label>
+                        <input type="text" id="reg-username" required minlength="3">
+                    </div>
+                    <div class="form-group">
+                        <label>Email</label>
+                        <input type="email" id="reg-email" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Password</label>
+                        <input type="password" id="reg-password" required minlength="6">
+                    </div>
+                    <div class="form-group">
+                        <label>Team Name</label>
+                        <input type="text" id="reg-team-name" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Create Account</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- My Team -->
+        <div id="page-my-team" class="page">
+            <div class="team-header">
+                <h2 id="team-name">My Team</h2>
+                <div class="team-info">
+                    <span id="team-points" class="team-stat">0 pts</span>
+                    <span id="team-budget" class="team-stat">£100.0m</span>
+                    <span id="team-transfers" class="team-stat">1 transfer</span>
+                </div>
+            </div>
+
+            <!-- Team Stats -->
+            <div class="team-stats" id="team-stats"></div>
+
+            <!-- Formation Selector -->
+            <div class="formation-selector">
+                <label>Formation:</label>
+                <select id="formation-select" onchange="changeFormation()">
+                    <option value="3-4-3">3-4-3</option>
+                    <option value="3-5-2">3-5-2</option>
+                    <option value="4-3-3" selected>4-3-3</option>
+                    <option value="4-4-2">4-4-2</option>
+                    <option value="4-5-1">4-5-1</option>
+                    <option value="5-3-2">5-3-2</option>
+                    <option value="5-4-1">5-4-1</option>
+                </select>
+                <span style="font-size:0.75rem;color:var(--text-muted);margin-left:0.5rem;">Click a player to set as Captain</span>
+            </div>
+
+            <!-- Pitch -->
+            <div class="pitch" id="pitch">
+                <div id="pitch-players" class="pitch-players"></div>
+            </div>
+
+            <!-- Bench -->
+            <div class="bench-section">
+                <h3>Bench</h3>
+                <div id="bench-grid" class="bench-grid"></div>
+            </div>
+
+            <!-- Chips -->
+            <div class="chips-section">
+                <h3>Chips (2x per season each)</h3>
+                <div id="chips-grid" class="chips-grid"></div>
+            </div>
+        </div>
+
+        <!-- Transfers -->
+        <div id="page-transfers" class="page">
+            <h2>Transfers</h2>
+            <div class="transfer-header">
+                <span id="transfer-free" class="transfer-stat">1 free transfer</span>
+                <span id="transfer-budget" class="transfer-stat">£100.0m budget</span>
+                <span id="wildcard-status" class="transfer-stat">Wildcard: Available</span>
+                <span id="active-chip-display" style="display:none;color:var(--purple);font-weight:bold;"></span>
+            </div>
+
+            <!-- Selected player out -->
+            <div id="transfer-selected" style="display:none;" class="transfer-selected">
+                <span style="color:var(--text-muted);margin-right:0.5rem;">Selling:</span>
+                <div id="selected-out"></div>
+                <button class="btn btn-sm" onclick="document.getElementById('transfer-selected').style.display='none'">Clear</button>
+            </div>
+
+            <!-- Search -->
+            <div class="transfer-search">
+                <input type="text" id="transfer-search-input" placeholder="Search players..." oninput="searchTransferPlayers()">
+                <select id="transfer-position-filter" onchange="searchTransferPlayers()">
+                    <option value="">All Positions</option>
+                    <option value="GK">Goalkeepers</option>
+                    <option value="DEF">Defenders</option>
+                    <option value="MID">Midfielders</option>
+                    <option value="FWD">Forwards</option>
+                </select>
+            </div>
+
+            <!-- Results -->
+            <div id="transfer-results" class="transfer-results"></div>
+        </div>
+
+        <!-- Players -->
+        <div id="page-players" class="page">
+            <h2>Player List</h2>
+            <div class="player-search">
+                <input type="text" id="player-search" placeholder="Search players..." oninput="loadPlayers()">
+                <select id="player-position" onchange="loadPlayers()">
+                    <option value="">All Positions</option>
+                    <option value="GK">Goalkeepers</option>
+                    <option value="DEF">Defenders</option>
+                    <option value="MID">Midfielders</option>
+                    <option value="FWD">Forwards</option>
+                </select>
+                <select id="player-sort" onchange="loadPlayers()">
+                    <option value="goals">Goals</option>
+                    <option value="assists">Assists</option>
+                    <option value="clean_sheets">Clean Sheets</option>
+                    <option value="total_points">Total Points</option>
+                    <option value="price">Price</option>
+                </select>
+            </div>
+            <div id="players-container" class="players-container"></div>
+        </div>
+
+        <!-- Gameweeks -->
+        <div id="page-gameweeks" class="page">
+            <h2>Gameweeks</h2>
+            <div id="gameweeks-container" class="gameweeks-container"></div>
+        </div>
+
+        <!-- Leaderboard -->
+        <div id="page-leaderboard" class="page">
+            <h2>Overall Leaderboard</h2>
+            <div id="leaderboard-table"></div>
+        </div>
+
+        <!-- Leagues -->
+        <div id="page-leagues" class="page">
+            <h2>My Leagues</h2>
+            <div class="create-league">
+                <h3>Create League</h3>
+                <input type="text" id="league-name" placeholder="League name">
+                <button class="btn btn-primary" onclick="createLeague()">Create</button>
+            </div>
+            <div class="join-league">
+                <h3>Join League</h3>
+                <input type="text" id="league-code" placeholder="Invite code">
+                <button class="btn btn-primary" onclick="joinLeague()">Join</button>
+            </div>
+            <div id="leagues-container" class="leagues-container"></div>
+        </div>
+
+        <!-- History -->
+        <div id="page-history" class="page">
+            <h2>Gameweek History</h2>
+            <div id="history-container"></div>
+        </div>
+    </main>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <script src="/static/js/app.js"></script>
+    <script>
+        // League functions
+        async function createLeague() {
+            if (!state.user) return showToast('Please login first', 'error');
+            const name = document.getElementById('league-name').value;
+            if (!name) return showToast('Enter a league name', 'error');
+
+            try {
+                await api(`/api/leagues/?user_id=${state.user.id}`, {
+                    method: 'POST',
+                    body: JSON.stringify({ name, is_h2h: false }),
+                });
+                showToast('League created!');
+                document.getElementById('league-name').value = '';
+                loadLeagues();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        async function joinLeague() {
+            if (!state.user) return showToast('Please login first', 'error');
+            const code = document.getElementById('league-code').value;
+            if (!code) return showToast('Enter a league code', 'error');
+
+            try {
+                await api(`/api/leagues/join?user_id=${state.user.id}`, {
+                    method: 'POST',
+                    body: JSON.stringify({ code }),
+                });
+                showToast('Joined league!');
+                document.getElementById('league-code').value = '';
+                loadLeagues();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+    </script>
+</body>
+</html>
