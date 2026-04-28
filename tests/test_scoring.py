@@ -19,19 +19,29 @@ from app import scoring
 # --- Scoring Tests ---
 
 class TestFPLScoring:
-    """Test FPL-accurate scoring engine."""
+    """Test FPL 2025/26 accurate scoring engine."""
 
     def test_gk_save(self):
+        # FPL 2025/26: every 3 saves = 1 pt
         pts = scoring.calculate_player_points(position="GK", saves=3, minutes_played=90)
-        assert pts == 5  # 2 (60+ min) + 3 (saves)
+        assert pts == 3  # 2 (60+ min) + 1 (3 saves / 3)
+
+    def test_gk_save_not_enough(self):
+        pts = scoring.calculate_player_points(position="GK", saves=2, minutes_played=90)
+        assert pts == 2  # 2 (60+ min) + 0 (2 saves < 3)
+
+    def test_gk_save_many(self):
+        pts = scoring.calculate_player_points(position="GK", saves=7, minutes_played=90)
+        assert pts == 4  # 2 + 2 (7//3)
 
     def test_gk_clean_sheet(self):
         pts = scoring.calculate_player_points(position="GK", clean_sheet=True, minutes_played=90)
         assert pts == 6  # 2 + 4
 
     def test_gk_goal(self):
+        # FPL 2025/26: GK goal = 10 pts
         pts = scoring.calculate_player_points(position="GK", goals_scored=1, minutes_played=90)
-        assert pts == 8  # 2 + 6
+        assert pts == 12  # 2 + 10
 
     def test_gk_penalty_save(self):
         pts = scoring.calculate_player_points(position="GK", penalties_saved=1, minutes_played=90)
@@ -42,8 +52,17 @@ class TestFPLScoring:
         assert pts == 0  # 2 - 2
 
     def test_gk_conceded_penalty(self):
+        # FPL 2025/26: every 2 goals conceded = -1
         pts = scoring.calculate_player_points(position="GK", goals_conceded=5, minutes_played=90)
-        assert pts == -1  # 2 - 3 (max penalty)
+        assert pts == 0  # 2 - (5//2) = 2 - 2 = 0
+
+    def test_gk_conceded_even(self):
+        pts = scoring.calculate_player_points(position="GK", goals_conceded=4, minutes_played=90)
+        assert pts == 0  # 2 - (4//2) = 2 - 2 = 0
+
+    def test_gk_conceded_one(self):
+        pts = scoring.calculate_player_points(position="GK", goals_conceded=1, minutes_played=90)
+        assert pts == 2  # 2 - (1//2) = 2 - 0 = 2
 
     def test_def_goal(self):
         pts = scoring.calculate_player_points(position="DEF", goals_scored=1, minutes_played=90)
@@ -58,8 +77,22 @@ class TestFPLScoring:
         assert pts == 6  # 2 + 4
 
     def test_def_goals_conceded(self):
+        # FPL 2025/26: every 2 goals = -1
         pts = scoring.calculate_player_points(position="DEF", goals_conceded=3, minutes_played=90)
-        assert pts == -1  # 2 - 3
+        assert pts == 1  # 2 - (3//2) = 2 - 1 = 1
+
+    def test_def_goals_conceded_many(self):
+        pts = scoring.calculate_player_points(position="DEF", goals_conceded=6, minutes_played=90)
+        assert pts == -1  # 2 - (6//2) = 2 - 3 = -1
+
+    def test_def_defensive_contributions(self):
+        # FPL 2025/26: DEF with 10+ defensive contributions gets +2
+        pts = scoring.calculate_player_points(position="DEF", minutes_played=90, defensive_contributions=10)
+        assert pts == 4  # 2 + 2
+
+    def test_def_defensive_contributions_not_enough(self):
+        pts = scoring.calculate_player_points(position="DEF", minutes_played=90, defensive_contributions=9)
+        assert pts == 2  # 2 + 0 (need 10)
 
     def test_mid_goal(self):
         pts = scoring.calculate_player_points(position="MID", goals_scored=1, minutes_played=90)
@@ -70,8 +103,18 @@ class TestFPLScoring:
         assert pts == 5  # 2 + 3
 
     def test_mid_clean_sheet(self):
+        # FPL 2025/26: MID clean sheet = 1 pt (was 3)
         pts = scoring.calculate_player_points(position="MID", clean_sheet=True, minutes_played=90)
-        assert pts == 5  # 2 + 3
+        assert pts == 3  # 2 + 1
+
+    def test_mid_defensive_contributions(self):
+        # FPL 2025/26: MID with 12+ defensive contributions gets +2
+        pts = scoring.calculate_player_points(position="MID", minutes_played=90, defensive_contributions=12)
+        assert pts == 4  # 2 + 2
+
+    def test_mid_defensive_contributions_not_enough(self):
+        pts = scoring.calculate_player_points(position="MID", minutes_played=90, defensive_contributions=11)
+        assert pts == 2  # 2 + 0 (need 12)
 
     def test_fwd_goal(self):
         pts = scoring.calculate_player_points(position="FWD", goals_scored=1, minutes_played=90)
@@ -84,6 +127,10 @@ class TestFPLScoring:
     def test_fwd_no_clean_sheet(self):
         pts = scoring.calculate_player_points(position="FWD", clean_sheet=True, minutes_played=90)
         assert pts == 2  # Only participation bonus
+
+    def test_fwd_defensive_contributions(self):
+        pts = scoring.calculate_player_points(position="FWD", minutes_played=90, defensive_contributions=12)
+        assert pts == 4  # 2 + 2
 
     def test_yellow_card(self):
         pts = scoring.calculate_player_points(position="MID", yellow_card=True, minutes_played=90)
@@ -106,8 +153,15 @@ class TestFPLScoring:
     def test_participation_bonus(self):
         pts = scoring.calculate_player_points(position="FWD", minutes_played=60)
         assert pts == 2
+        # FPL 2025/26: playing < 60 mins gives 1 pt
         pts_under = scoring.calculate_player_points(position="FWD", minutes_played=59)
-        assert pts_under == 0
+        assert pts_under == 1
+        # Playing 0 mins gives 0
+        pts_zero = scoring.calculate_player_points(position="FWD", minutes_played=0)
+        assert pts_zero == 0
+        # Playing 1 min gives 1
+        pts_one = scoring.calculate_player_points(position="FWD", minutes_played=1)
+        assert pts_one == 1
 
     def test_complex_def(self):
         pts = scoring.calculate_player_points(
@@ -121,14 +175,28 @@ class TestFPLScoring:
             position="MID", goals_scored=2, assists=1, clean_sheet=True,
             minutes_played=90, bonus_points=3,
         )
-        assert pts == 21  # 2 + 10 + 3 + 3 + 3
+        # FPL 2025/26: MID clean sheet = 1
+        assert pts == 19  # 2 + 10 + 3 + 1 + 3
 
     def test_full_game_gk(self):
+        # FPL 2025/26: saves / 3
         pts = scoring.calculate_player_points(
             position="GK", goals_scored=0, assists=0, clean_sheet=True,
             goals_conceded=0, saves=4, minutes_played=90, bonus_points=2,
         )
-        assert pts == 12  # 2 (participation) + 4 (clean sheet) + 4 (saves) + 2 (bonus)
+        assert pts == 9  # 2 (participation) + 4 (clean sheet) + 1 (4//3 saves) + 2 (bonus)
+
+    def test_no_minutes(self):
+        pts = scoring.calculate_player_points(
+            position="FWD", goals_scored=1, minutes_played=0
+        )
+        assert pts == 4  # Just goal points, no participation
+
+    def test_under_60_with_goal(self):
+        pts = scoring.calculate_player_points(
+            position="MID", goals_scored=1, minutes_played=45
+        )
+        assert pts == 6  # 1 (under 60 min) + 5 (goal)
 
 
 class TestBPSSystem:
@@ -167,6 +235,50 @@ class TestBPSSystem:
         assert bonus[2] == 2
         assert bonus[3] == 1
         assert 4 not in bonus
+        assert 5 not in bonus
+
+    def test_award_bonus_tie_for_first(self):
+        """Tie for 1st: both get 3, player 3 gets 1."""
+        players = [
+            {"player_id": 1, "bps": 50},
+            {"player_id": 2, "bps": 50},
+            {"player_id": 3, "bps": 40},
+            {"player_id": 4, "bps": 30},
+        ]
+        bonus = scoring.award_bonus_points(players)
+        assert bonus[1] == 3
+        assert bonus[2] == 3
+        assert bonus[3] == 1
+        assert 4 not in bonus
+
+    def test_award_bonus_tie_for_second(self):
+        """Tie for 2nd: player 1 gets 3, players 2&3 get 2."""
+        players = [
+            {"player_id": 1, "bps": 50},
+            {"player_id": 2, "bps": 40},
+            {"player_id": 3, "bps": 40},
+            {"player_id": 4, "bps": 30},
+        ]
+        bonus = scoring.award_bonus_points(players)
+        assert bonus[1] == 3
+        assert bonus[2] == 2
+        assert bonus[3] == 2
+        assert 4 not in bonus
+
+    def test_award_bonus_tie_for_third(self):
+        """Tie for 3rd: player 1 gets 3, player 2 gets 2, players 3&4 get 1."""
+        players = [
+            {"player_id": 1, "bps": 50},
+            {"player_id": 2, "bps": 40},
+            {"player_id": 3, "bps": 30},
+            {"player_id": 4, "bps": 30},
+            {"player_id": 5, "bps": 20},
+        ]
+        bonus = scoring.award_bonus_points(players)
+        assert bonus[1] == 3
+        assert bonus[2] == 2
+        assert bonus[3] == 1
+        assert bonus[4] == 1
         assert 5 not in bonus
 
 
@@ -628,7 +740,7 @@ class TestAPIEndpoints:
         user_resp = client.post("/api/users/register", json={
             "username": "leagueadmin",
             "email": "admin@test.com",
-            "password": "password123",
+            "password": "testpass123",
         })
         user_id = user_resp.json()["id"]
 
@@ -647,6 +759,134 @@ class TestAPIEndpoints:
         data = response.json()
         assert "code" in data
         assert len(data["code"]) == 8
+
+
+class TestDreamTeamEndpoint:
+    """Test Dream Team API endpoint."""
+
+    def test_dream_team_not_calculated(self, client, test_db):
+        """Dream Team endpoint returns empty when not calculated."""
+        from app.models import Gameweek
+
+        _, db = test_db
+
+        # Create a gameweek
+        gw = Gameweek(number=1, season="2025-26", start_date=date(2025, 8, 16), end_date=date(2025, 8, 23), deadline=datetime(2025, 8, 16, 11, 0), closed=True, scored=True)
+        db.add(gw)
+        db.commit()
+
+        # Dream team not yet calculated
+        response = client.get(f"/api/dream-team/{gw.id}")
+        data = response.json()
+        assert response.status_code == 200
+        assert data["players"] == []
+        assert "message" in data
+
+
+class TestGameweekRecapEndpoint:
+    """Test Gameweek Recap API endpoint."""
+
+    def test_gameweek_recap_not_found(self, client, test_db):
+        """Recap returns 404 for non-existent gameweek."""
+        response = client.get("/api/gameweeks/99999/recap")
+        assert response.status_code == 404
+
+    def test_gameweek_recap_empty(self, client, test_db):
+        """Recap returns empty data when no player points exist."""
+        from app.models import Gameweek
+
+        _, db = test_db
+
+        gw = Gameweek(number=1, season="2025-26", start_date=date(2025, 8, 16), end_date=date(2025, 8, 23), deadline=datetime(2025, 8, 16, 11, 0), closed=True, scored=True)
+        db.add(gw)
+        db.commit()
+
+        response = client.get(f"/api/gameweeks/{gw.id}/recap")
+        data = response.json()
+        assert response.status_code == 200
+        assert data["summary"]["total_players_scored"] == 0
+        assert data["top_scorers"] == []
+
+
+class TestTransfersTrackingEndpoint:
+    """Test Transfer Tracking API endpoints."""
+
+    def test_most_owned_empty(self, client, test_db):
+        """Most owned returns empty when no players exist."""
+        response = client.get("/api/transfers/most-owned")
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, list)
+
+    def test_most_transferred_empty(self, client, test_db):
+        """Most transferred returns empty when no players exist."""
+        response = client.get("/api/transfers/most-transferred")
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, list)
+
+    def test_transfers_in_empty(self, client, test_db):
+        response = client.get("/api/transfers/transfers-in")
+        assert response.status_code == 200
+
+    def test_transfers_out_empty(self, client, test_db):
+        response = client.get("/api/transfers/transfers-out")
+        assert response.status_code == 200
+
+
+class TestScoringEdgeCases:
+    """Test edge cases in FPL 2025/26 scoring."""
+
+    def test_defensive_contributions_def_exactly_threshold(self):
+        """DEF with exactly 10 defensive contributions gets +2."""
+        pts = scoring.calculate_player_points(
+            position="DEF", minutes_played=90, defensive_contributions=10
+        )
+        assert pts == 4  # 2 + 2
+
+    def test_defensive_contributions_def_below_threshold(self):
+        """DEF with 9 defensive contributions gets nothing extra."""
+        pts = scoring.calculate_player_points(
+            position="DEF", minutes_played=90, defensive_contributions=9
+        )
+        assert pts == 2  # 2 + 0
+
+    def test_gk_saves_exactly_three(self):
+        """GK with exactly 3 saves gets 1 save point."""
+        pts = scoring.calculate_player_points(
+            position="GK", saves=3, minutes_played=90
+        )
+        assert pts == 3  # 2 + 1
+
+    def test_gk_saves_exactly_six(self):
+        """GK with exactly 6 saves gets 2 save points."""
+        pts = scoring.calculate_player_points(
+            position="GK", saves=6, minutes_played=90
+        )
+        assert pts == 4  # 2 + 2
+
+    def test_mid_clean_sheet_one_point(self):
+        """MID clean sheet gives exactly 1 point in 2025/26."""
+        pts = scoring.calculate_player_points(
+            position="MID", clean_sheet=True, minutes_played=90
+        )
+        assert pts == 3  # 2 + 1
+
+    def test_fwd_no_clean_sheet_points(self):
+        """FWD gets no clean sheet points."""
+        pts = scoring.calculate_player_points(
+            position="FWD", clean_sheet=True, minutes_played=90
+        )
+        assert pts == 2  # Only participation
+
+    def test_combined_negative_scoring(self):
+        """Player with red card, own goal, and goals conceded."""
+        pts = scoring.calculate_player_points(
+            position="DEF", minutes_played=90,
+            red_card=True, own_goal=True, goals_conceded=4
+        )
+        # 2 (participation) - 3 (red) - 2 (own goal) - 2 (4//2 conceded) = -5
+        assert pts == -5
 
 
 if __name__ == "__main__":

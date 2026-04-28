@@ -15,9 +15,13 @@
             <a href="#" onclick="navigate('my-team')" class="nav-link" data-page="my-team">My Team</a>
             <a href="#" onclick="navigate('transfers')" class="nav-link" data-page="transfers">Transfers</a>
             <a href="#" onclick="navigate('players')" class="nav-link" data-page="players">Players</a>
+            <a href="#" onclick="navigate('fixtures')" class="nav-link" data-page="fixtures">Fixtures</a>
             <a href="#" onclick="navigate('gameweeks')" class="nav-link" data-page="gameweeks">Gameweeks</a>
+            <a href="#" onclick="navigate('history')" class="nav-link" data-page="history">History</a>
+            <a href="#" onclick="navigate('dream-team')" class="nav-link" data-page="dream-team">Dream Team</a>
             <a href="#" onclick="navigate('leaderboard')" class="nav-link" data-page="leaderboard">Leaderboard</a>
             <a href="#" onclick="navigate('leagues')" class="nav-link" data-page="leagues">Leagues</a>
+            <a href="#" onclick="navigate('help')" class="nav-link" data-page="help">Help</a>
         </div>
         <div class="nav-auth" id="nav-auth"></div>
     </nav>
@@ -69,10 +73,12 @@
                 <h2 id="team-name">My Team</h2>
                 <div class="team-stats-bar">
                     <span class="stat-budget">Budget: £<span id="team-budget">100.0</span>m</span>
+                    <span class="stat-value">Value: £<span id="team-value">0.0</span>m</span>
                     <span class="stat-points">Total: <span id="team-points">0</span> pts</span>
                     <span class="stat-transfers">Transfers: <span id="team-transfers">0</span></span>
                 </div>
             </div>
+            <div class="chip-status-bar" id="chip-status-bar"></div>
             <div class="formation-bar">
                 <label>Formation:</label>
                 <select id="formation-select" onchange="changeFormation()">
@@ -91,7 +97,7 @@
                 </div>
             </div>
             <div class="bench-wrapper">
-                <h3>Bench</h3>
+                <h3>Bench <small>(drag to set priority)</small></h3>
                 <div id="bench-grid"></div>
             </div>
             <div class="chips-section">
@@ -141,18 +147,63 @@
             <div id="players-container"></div>
         </div>
 
+        <!-- FIXTURES -->
+        <div id="page-fixtures" class="page">
+            <div class="fixtures-header">
+                <h2>Fixtures</h2>
+                <div class="fixtures-controls">
+                    <select id="fixtures-gw-select" onchange="loadFixtures()">
+                        <option value="">All Gameweeks</option>
+                    </select>
+                    <select id="fixtures-team-filter" onchange="loadFixtures()">
+                        <option value="">All Teams</option>
+                    </select>
+                </div>
+            </div>
+            <div class="fixtures-legend">
+                <span class="difficulty hh"><span class="difficulty-dot hh"></span>HH</span>
+                <span class="difficulty h"><span class="difficulty-dot h"></span>H</span>
+                <span class="difficulty m"><span class="difficulty-dot m"></span>M</span>
+                <span class="difficulty e"><span class="difficulty-dot e"></span>E</span>
+                <span class="difficulty ee"><span class="difficulty-dot ee"></span>EE</span>
+            </div>
+            <div id="fixtures-container"></div>
+        </div>
+
         <!-- GAMEWEEKS -->
         <div id="page-gameweeks" class="page">
             <div class="gw-header">
                 <h2>Gameweeks</h2>
                 <button class="btn btn-primary" onclick="syncGameweeks()">Sync Fixtures</button>
             </div>
+            <div class="scoring-progress" id="scoring-progress"></div>
             <div id="gameweeks-container"></div>
+        </div>
+
+        <!-- HISTORY PAGE -->
+        <div id="page-history" class="page">
+            <div class="history-header">
+                <h2>Gameweek History</h2>
+            </div>
+            <div class="history-controls">
+                <select id="history-gw-select" onchange="loadGameweekBreakdown()">
+                    <option value="">Select Gameweek</option>
+                </select>
+            </div>
+            <div id="history-summary" class="history-summary"></div>
+            <div id="history-breakdown" class="history-breakdown"></div>
+            <div id="transfer-history" class="transfer-history-section">
+                <h3>Transfer History</h3>
+                <div id="transfer-history-container"></div>
+            </div>
         </div>
 
         <!-- LEADERBOARD -->
         <div id="page-leaderboard" class="page">
-            <h2>Global Leaderboard</h2>
+            <div class="leaderboard-header">
+                <h2>Global Leaderboard</h2>
+                <div class="leaderboard-stats" id="leaderboard-stats"></div>
+            </div>
             <div id="leaderboard-container"></div>
         </div>
 
@@ -167,9 +218,141 @@
             </div>
             <div id="leagues-container"></div>
         </div>
+
+        <!-- DREAM TEAM -->
+        <div id="page-dream-team" class="page">
+            <div class="dream-team-header">
+                <h2>Dream Team</h2>
+                <p class="section-desc">The best-performing XI across all fixtures this gameweek.</p>
+            </div>
+            <div class="dream-team-selector">
+                <label>Select Gameweek:</label>
+                <select id="dream-team-gw-select" onchange="loadDreamTeam()">
+                    <option value="">Select Gameweek</option>
+                </select>
+            </div>
+            <div id="dream-team-pitch" class="pitch dream-team-pitch">
+                <div id="dream-team-players" class="pitch-players"></div>
+            </div>
+            <div id="dream-team-total" class="dream-team-total"></div>
+        </div>
+
+        <!-- HELP / SCORING GUIDE -->
+        <div id="page-help" class="page">
+            <h2>FPL Rules & Scoring Guide</h2>
+
+            <div class="help-section">
+                <h3>Squad Rules</h3>
+                <ul>
+                    <li>15 players: 2 GK, 5 DEF, 5 MID, 3 FWD</li>
+                    <li>£100 million budget cap</li>
+                    <li>Maximum 3 players from any single club</li>
+                    <li>Starting XI: 1 GK, 3-5 DEF, 1-5 MID, 1-3 FWD</li>
+                </ul>
+            </div>
+
+            <div class="help-section">
+                <h3>Points Scoring</h3>
+                <div class="scoring-table">
+                    <table>
+                        <thead>
+                            <tr><th>Action</th><th>Points</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr><td>Playing up to 60 minutes</td><td>+1</td></tr>
+                            <tr><td>Playing 60 minutes or more</td><td>+2</td></tr>
+                            <tr><td>Goal by goalkeeper</td><td>+10</td></tr>
+                            <tr><td>Goal by defender</td><td>+6</td></tr>
+                            <tr><td>Goal by midfielder</td><td>+5</td></tr>
+                            <tr><td>Goal by forward</td><td>+4</td></tr>
+                            <tr><td>Assist for a goal</td><td>+3</td></tr>
+                            <tr><td>Clean sheet (GK/DEF)</td><td>+4</td></tr>
+                            <tr><td>Clean sheet (MID)</td><td>+1</td></tr>
+                            <tr><td>Every 3 saves (GK)</td><td>+1</td></tr>
+                            <tr><td>Penalty save (GK)</td><td>+5</td></tr>
+                            <tr><td>10 defensive contributions (DEF)</td><td>+2</td></tr>
+                            <tr><td>12 defensive contributions (MID/FWD)</td><td>+2</td></tr>
+                            <tr><td>Penalty miss</td><td>-2</td></tr>
+                            <tr><td>Yellow card</td><td>-1</td></tr>
+                            <tr><td>Red card</td><td>-3</td></tr>
+                            <tr><td>Own goal</td><td>-2</td></tr>
+                            <tr><td>Every 2 goals conceded (GK/DEF)</td><td>-1</td></tr>
+                            <tr><td>Bonus points</td><td>1-3</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="help-section">
+                <h3>Chips (2x per season each)</h3>
+                <div class="chips-help">
+                    <div class="chip-help-card">
+                        <h4>Wildcard</h4>
+                        <p>Unlimited permanent transfers at no cost. One for each half of the season.</p>
+                    </div>
+                    <div class="chip-help-card">
+                        <h4>Free Hit</h4>
+                        <p>One-off squad change that reverts next gameweek. One for each half of the season.</p>
+                    </div>
+                    <div class="chip-help-card">
+                        <h4>Bench Boost</h4>
+                        <p>All 15 players' points count for one gameweek. One for each half of the season.</p>
+                    </div>
+                    <div class="chip-help-card">
+                        <h4>Triple Captain</h4>
+                        <p>Captain's points tripled instead of doubled. One for each half of the season.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="help-section">
+                <h3>Transfers</h3>
+                <ul>
+                    <li>1 free transfer per gameweek</li>
+                    <li>Unused transfers roll over (max 4)</li>
+                    <li>Maximum 5 transfers per gameweek (4 rollover + 1 current)</li>
+                    <li>Extra transfers cost -4 points each</li>
+                    <li>Maximum 20 transfers per gameweek (excluding chips)</li>
+                </ul>
+            </div>
+
+            <div class="help-section">
+                <h3>Bonus Points (BPS)</h3>
+                <p>The top 3 players in each match earn bonus points based on underlying stats:</p>
+                <ul>
+                    <li>1st place: 3 bonus points</li>
+                    <li>2nd place: 2 bonus points</li>
+                    <li>3rd place: 1 bonus point</li>
+                    <li>Ties are resolved per FPL rules</li>
+                </ul>
+            </div>
+
+            <div class="help-section">
+                <h3>Captain & Vice-Captain</h3>
+                <ul>
+                    <li>Captain's points are doubled (2x)</li>
+                    <li>Vice-Captain becomes captain if the captain doesn't play</li>
+                    <li>Triple Captain chip makes captain's points tripled (3x)</li>
+                </ul>
+            </div>
+
+            <div class="help-section">
+                <h3>Price Changes</h3>
+                <ul>
+                    <li>Prices change weekly based on ownership and performance</li>
+                    <li>+£0.1m for every 25% increase in ownership</li>
+                    <li>-£0.1m for every 25% decrease in ownership</li>
+                    <li>Half-increase rule: when selling, you get half the price increase</li>
+                </ul>
+            </div>
+        </div>
     </main>
 
     <div class="toast-container" id="toast-container"></div>
+
+    <!-- Modals -->
+    <div id="modal-overlay" class="modal-overlay" onclick="closeModal()"></div>
+    <div id="modal-content" class="modal-content"></div>
 
     <script src="/static/js/app.js"></script>
 </body>

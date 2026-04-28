@@ -20,9 +20,11 @@
             <a href="#" class="nav-link" data-page="transfers">Transfers</a>
             <a href="#" class="nav-link" data-page="players">Players</a>
             <a href="#" class="nav-link" data-page="gameweeks">Gameweeks</a>
+            <a href="#" class="nav-link" data-page="dream-team">Dream Team</a>
             <a href="#" class="nav-link" data-page="leaderboard">Leaderboard</a>
             <a href="#" class="nav-link" data-page="leagues">Leagues</a>
             <a href="#" class="nav-link" data-page="history">History</a>
+            <a href="#" class="nav-link" data-page="help">Help</a>
         </div>
         <div class="nav-auth" id="nav-auth">
             <a href="#" class="nav-link" data-page="login">Login</a>
@@ -272,6 +274,134 @@
         <div id="page-history" class="page">
             <h2>Gameweek History</h2>
             <div id="history-container"></div>
+        </div>
+
+        <!-- Dream Team -->
+        <div id="page-dream-team" class="page">
+            <h2>Dream Team</h2>
+            <p class="section-desc">The best-performing XI across all fixtures this gameweek.</p>
+            <div class="dream-team-selector">
+                <select id="dream-team-gw-select" onchange="loadDreamTeam()">
+                    <option value="">Select Gameweek</option>
+                </select>
+            </div>
+            <div id="dream-team-pitch" class="pitch dream-team-pitch">
+                <div id="dream-team-players" class="pitch-players"></div>
+            </div>
+            <div id="dream-team-total" class="dream-team-total"></div>
+        </div>
+
+        <!-- Help / Scoring Guide -->
+        <div id="page-help" class="page">
+            <h2>FPL 2025/26 Rules & Scoring</h2>
+
+            <div class="help-section">
+                <h3>📋 Squad Rules</h3>
+                <ul>
+                    <li>15 players: 2 GK, 5 DEF, 5 MID, 3 FWD</li>
+                    <li>£100 million budget cap</li>
+                    <li>Maximum 3 players from any single club</li>
+                    <li>Starting XI: 1 GK, 3-5 DEF, 1-5 MID, 1-3 FWD</li>
+                </ul>
+            </div>
+
+            <div class="help-section">
+                <h3>⚽ Points Scoring</h3>
+                <div class="scoring-table">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Action</th>
+                                <th>Points</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr><td>Playing up to 60 minutes</td><td>+1</td></tr>
+                            <tr><td>Playing 60 minutes or more</td><td>+2</td></tr>
+                            <tr><td>Goal by goalkeeper</td><td>+10</td></tr>
+                            <tr><td>Goal by defender</td><td>+6</td></tr>
+                            <tr><td>Goal by midfielder</td><td>+5</td></tr>
+                            <tr><td>Goal by forward</td><td>+4</td></tr>
+                            <tr><td>Assist for a goal</td><td>+3</td></tr>
+                            <tr><td>Clean sheet (GK/DEF)</td><td>+4</td></tr>
+                            <tr><td>Clean sheet (MID)</td><td>+1</td></tr>
+                            <tr><td>Every 3 saves (GK)</td><td>+1</td></tr>
+                            <tr><td>Penalty save (GK)</td><td>+5</td></tr>
+                            <tr><td>10 defensive contributions (DEF)</td><td>+2</td></tr>
+                            <tr><td>12 defensive contributions (MID/FWD)</td><td>+2</td></tr>
+                            <tr><td>Penalty miss</td><td>-2</td></tr>
+                            <tr><td>Yellow card</td><td>-1</td></tr>
+                            <tr><td>Red card</td><td>-3</td></tr>
+                            <tr><td>Own goal</td><td>-2</td></tr>
+                            <tr><td>Every 2 goals conceded (GK/DEF)</td><td>-1</td></tr>
+                            <tr><td>Bonus points</td><td>1-3</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="help-section">
+                <h3>🃏 Chips (2x per season each)</h3>
+                <div class="chips-help">
+                    <div class="chip-help-card">
+                        <h4>Wildcard</h4>
+                        <p>Unlimited permanent transfers at no cost. One for each half of the season.</p>
+                    </div>
+                    <div class="chip-help-card">
+                        <h4>Free Hit</h4>
+                        <p>One-off squad change that reverts next gameweek. One for each half of the season.</p>
+                    </div>
+                    <div class="chip-help-card">
+                        <h4>Bench Boost</h4>
+                        <p>All 15 players' points count for one gameweek. One for each half of the season.</p>
+                    </div>
+                    <div class="chip-help-card">
+                        <h4>Triple Captain</h4>
+                        <p>Captain's points tripled instead of doubled. One for each half of the season.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="help-section">
+                <h3>🔄 Transfers</h3>
+                <ul>
+                    <li>1 free transfer per gameweek</li>
+                    <li>Unused transfers roll over (max 4)</li>
+                    <li>Maximum 5 transfers per gameweek (4 rollover + 1 current)</li>
+                    <li>Extra transfers cost -4 points each</li>
+                    <li>Maximum 20 transfers per gameweek (excluding chips)</li>
+                </ul>
+            </div>
+
+            <div class="help-section">
+                <h3>🏆 Bonus Points (BPS)</h3>
+                <p>The top 3 players in each match earn bonus points based on underlying stats:</p>
+                <ul>
+                    <li>1st place: 3 bonus points</li>
+                    <li>2nd place: 2 bonus points</li>
+                    <li>3rd place: 1 bonus point</li>
+                    <li>Ties are resolved per FPL rules (ties at 1st get 3 pts, ties at 2nd get 2 pts, etc.)</li>
+                </ul>
+            </div>
+
+            <div class="help-section">
+                <h3>👑 Captain & Vice-Captain</h3>
+                <ul>
+                    <li>Captain's points are doubled (2x)</li>
+                    <li>Vice-Captain becomes captain if the captain doesn't play</li>
+                    <li>Triple Captain chip makes captain's points tripled (3x)</li>
+                </ul>
+            </div>
+
+            <div class="help-section">
+                <h3>💰 Price Changes</h3>
+                <ul>
+                    <li>Prices change weekly based on ownership and performance</li>
+                    <li>+£0.1m for every 25% increase in ownership</li>
+                    <li>-£0.1m for every 25% decrease in ownership</li>
+                    <li>Half-increase rule: when selling, you get half the price increase</li>
+                </ul>
+            </div>
         </div>
     </main>
 

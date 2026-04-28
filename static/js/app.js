@@ -1,73 +1,43 @@
-/** Fantasy Football Isle of Man - Frontend Application */
+/**
+ * Fantasy Football Isle of Man - Main Application JavaScript
+ * FPL-style fantasy football for Isle of Man leagues
+ */
 
-// State
-const state = {
-    user: JSON.parse(localStorage.getItem('ff_iom_user') || 'null'),
-    team: null,
-    gameweek: null,
-    leaderboard: [],
-    leagues: [],
-    transferPlayerOut: null,
-    formation: '4-3-3',
-};
+// ===== CONFIG =====
+const API_BASE = '/api';
+let currentUser = null;
+let currentTeam = null;
+let countdownInterval = null;
 
-// API helpers
-async function api(endpoint, options = {}) {
-    const url = endpoint.startsWith('http') ? endpoint : endpoint;
-    const defaults = {
-        headers: { 'Content-Type': 'application/json' },
-    };
+// ===== AUTH =====
+async function handleLogin(e) {
+    e.preventDefault();
+    const username = document.getElementById('login-username').value;
+    const password = document.getElementById('login-password').value;
 
-    const resp = await fetch(url, { ...defaults, ...options });
-    if (!resp.ok) {
-        const err = await resp.json().catch(() => ({ detail: 'Request failed' }));
-        throw new Error(err.detail || `HTTP ${resp.status}`);
-    }
-    return resp.json();
-}
+    try {
+        const response = await fetch(`${API_BASE}/users/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`
+        });
 
-// Navigation
-function showPage(page) {
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
-
-    const target = document.getElementById(`page-${page}`);
-    if (target) target.classList.add('active');
-
-    const link = document.querySelector(`.nav-link[data-page="${page}"]`);
-    if (link) link.classList.add('active');
-
-    switch(page) {
-        case 'home': loadHome(); break;
-        case 'my-team': loadMyTeam(); break;
-        case 'transfers': loadTransfers(); break;
-        case 'players': loadPlayers(); break;
-        case 'gameweeks': loadGameweeks(); break;
-        case 'leaderboard': loadLeaderboard(); break;
-        case 'leagues': loadLeagues(); break;
-        case 'history': loadHistory(); break;
+        if (response.ok) {
+            const data = await response.json();
+            localStorage.setItem('token', data.access_token);
+            currentUser = data.user;
+            loadTeam();
+            updateNav();
+            navigate('my-team');
+        } else {
+            const err = await response.json();
+            showToast(err.detail || 'Login failed', 'error');
+        }
+    } catch (err) {
+        showToast('Login failed: ' + err.message, 'error');
     }
 }
 
-document.querySelectorAll('.nav-link').forEach(link => {
-    link.addEventListener('click', (e) => {
-        e.preventDefault();
-        showPage(link.dataset.page);
-    });
-});
-
-// Toast
-function showToast(message, type = 'success') {
-    const container = document.getElementById('toast-container');
-    if (!container) return;
-    const toast = document.createElement('div');
-    toast.className = `toast toast-${type}`;
-    toast.textContent = message;
-    container.appendChild(toast);
-    setTimeout(() => toast.remove(), 3000);
-}
-
-// Auth
 async function handleRegister(e) {
     e.preventDefault();
     const username = document.getElementById('reg-username').value;
@@ -76,738 +46,1254 @@ async function handleRegister(e) {
     const teamName = document.getElementById('reg-team-name').value;
 
     try {
-        const user = await api('/api/users/register', {
+        const response = await fetch(`${API_BASE}/users/register`, {
             method: 'POST',
-            body: JSON.stringify({ username, email, password }),
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, email, password, team_name: teamName })
         });
 
-        await api(`/api/users/${user.id}/team/create`, {
-            method: 'POST',
-            body: JSON.stringify({ team_name: teamName }),
-        });
-
-        state.user = user;
-        localStorage.setItem('ff_iom_user', JSON.stringify(user));
-        updateNav();
-        showToast(`Welcome ${username}! Team "${teamName}" created.`);
-        showPage('my-team');
+        if (response.ok) {
+            const data = await response.json();
+            localStorage.setItem('token', data.access_token);
+            currentUser = data.user;
+            loadTeam();
+            updateNav();
+            navigate('my-team');
+            showToast('Account created!', 'success');
+        } else {
+            const err = await response.json();
+            showToast(err.detail || 'Registration failed', 'error');
+        }
     } catch (err) {
-        showToast(err.message, 'error');
-    }
-}
-
-async function handleLogin(e) {
-    e.preventDefault();
-    const username = document.getElementById('login-username').value;
-    const password = document.getElementById('login-password').value;
-
-    try {
-        const user = await api('/api/users/login', {
-            method: 'POST',
-            body: new URLSearchParams({ username, password }),
-        });
-
-        state.user = user;
-        localStorage.setItem('ff_iom_user', JSON.stringify(user));
-        updateNav();
-        showToast(`Welcome back ${username}!`);
-        showPage('my-team');
-    } catch (err) {
-        showToast('Invalid credentials', 'error');
+        showToast('Registration failed: ' + err.message, 'error');
     }
 }
 
 function logout() {
-    state.user = null;
-    state.team = null;
-    localStorage.removeItem('ff_iom_user');
+    localStorage.removeItem('token');
+    currentUser = null;
+    currentTeam = null;
     updateNav();
-    showPage('home');
+    navigate('home');
 }
 
-function updateNav() {
-    const navUser = document.getElementById('nav-user');
-    const navAuth = document.getElementById('nav-auth');
+function getToken() {
+    return localStorage.getItem('token');
+}
 
-    if (state.user) {
-        navUser.style.display = 'flex';
-        navAuth.style.display = 'none';
-        document.getElementById('nav-username').textContent = state.user.username;
-    } else {
-        navUser.style.display = 'none';
-        navAuth.style.display = 'flex';
+async function apiFetch(url, options = {}) {
+    const token = getToken();
+    const headers = {
+        'Content-Type': 'application/json',
+        ...options.headers,
+    };
+    if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+    }
+    const response = await fetch(`${API_BASE}${url}`, { ...options, headers });
+    if (response.status === 401) {
+        logout();
+        throw new Error('Unauthorized');
+    }
+    return response;
+}
+
+// ===== NAVIGATION =====
+function navigate(page) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+
+    const pageEl = document.getElementById(`page-${page}`);
+    if (pageEl) pageEl.classList.add('active');
+
+    const navLink = document.querySelector(`.nav-link[data-page="${page}"]`);
+    if (navLink) navLink.classList.add('active');
+
+    // Load page data
+    switch (page) {
+        case 'home': loadHomePage(); break;
+        case 'my-team': loadMyTeam(); break;
+        case 'players': loadPlayers(); break;
+        case 'fixtures': loadFixtures(); break;
+        case 'gameweeks': loadGameweeks(); break;
+        case 'history': loadHistoryPage(); break;
+        case 'leaderboard': loadLeaderboard(); break;
+        case 'dream-team': loadDreamTeamPage(); break;
+        case 'leagues': loadLeagues(); break;
+        case 'transfers': loadTransfersPage(); break;
     }
 }
 
-// HOME
-async function loadHome() {
+function updateNav() {
+    const authDiv = document.getElementById('nav-auth');
+    if (currentUser) {
+        authDiv.innerHTML = `
+            <span class="nav-user">${currentUser.username}</span>
+            <button class="btn btn-sm btn-outline" onclick="logout()">Logout</button>
+        `;
+    } else {
+        authDiv.innerHTML = `
+            <button class="btn btn-sm btn-primary" onclick="navigate('login')">Login</button>
+        `;
+    }
+}
+
+// ===== HOME PAGE =====
+async function loadHomePage() {
+    await loadGameweekBanner();
+}
+
+async function loadGameweekBanner() {
     const banner = document.getElementById('gw-banner');
     if (!banner) return;
 
     try {
-        const data = await api('/api/gameweeks/current');
-        if (data.gameweek) {
-            const gw = data.gameweek;
-            const deadline = new Date(gw.deadline).toLocaleString();
-            const remaining = data.deadline_remaining || 0;
-            const hours = Math.floor(remaining / 3600);
-            const mins = Math.floor((remaining % 3600) / 60);
+        const response = await apiFetch('/gameweek-history/current-gw-info');
+        if (!response.ok) { banner.innerHTML = ''; return; }
 
+        const data = await response.json();
+
+        if (data.status === 'no_gameweeks') {
+            banner.innerHTML = '<div class="gw-banner-card"><p>No gameweeks configured yet.</p></div>';
+            return;
+        }
+
+        if (data.status === 'season_not_started') {
             banner.innerHTML = `
-                <div>
-                    <h3>Gameweek ${gw.number}</h3>
-                    <p>${gw.fixtures ? gw.fixtures.length : 0} fixtures</p>
+                <div class="gw-banner-card">
+                    <h3>Season Not Started</h3>
+                    <p>Gameweek ${data.next_gameweek} is next.</p>
+                </div>`;
+            return;
+        }
+
+        banner.innerHTML = `
+            <div class="gw-banner-card">
+                <div class="gw-banner-left">
+                    <h3>Gameweek ${data.gameweek_number}</h3>
+                    <p class="gw-deadline">Deadline: ${new Date(data.deadline).toLocaleString()}</p>
+                    ${data.is_closed ? '<span class="badge badge-closed">Closed</span>' : ''}
                 </div>
-                <div class="gw-deadline">
-                    Deadline: ${deadline}
-                    ${gw.closed
-                        ? '<span style="padding:0.3rem 0.75rem;border-radius:4px;background:var(--red);color:white;">Closed</span>'
-                        : `<span style="padding:0.3rem 0.75rem;border-radius:4px;background:var(--green);color:white;">Open - ${hours}h ${mins}m remaining</span>`
-                    }
+                <div class="gw-banner-right">
+                    <div class="gw-countdown" id="gw-countdown">
+                        ${data.is_closed ? 'Closed' : data.time_remaining_formatted}
+                    </div>
+                    ${data.is_scored ? '<span class="badge badge-scored">Scored</span>' : ''}
                 </div>
-            `;
-        } else {
-            banner.innerHTML = '<p>No active gameweek. Sync fixtures to start.</p>';
+            </div>`;
+
+        // Start countdown
+        startCountdown(data.deadline_unix);
+    } catch (err) {
+        console.error('Failed to load GW banner:', err);
+    }
+}
+
+function startCountdown(deadlineUnix) {
+    if (countdownInterval) clearInterval(countdownInterval);
+
+    countdownInterval = setInterval(() => {
+        const el = document.getElementById('gw-countdown');
+        if (!el) { clearInterval(countdownInterval); return; }
+
+        const now = Math.floor(Date.now() / 1000);
+        const remaining = deadlineUnix - now;
+
+        if (remaining <= 0) {
+            el.textContent = 'Closed';
+            clearInterval(countdownInterval);
+            return;
+        }
+
+        const days = Math.floor(remaining / 86400);
+        const hours = Math.floor((remaining % 86400) / 3600);
+        const mins = Math.floor((remaining % 3600) / 60);
+        const secs = remaining % 60;
+
+        let parts = [];
+        if (days > 0) parts.push(`${days}d`);
+        if (hours > 0) parts.push(`${hours}h`);
+        parts.push(`${mins}m`);
+        parts.push(`${secs}s`);
+
+        el.textContent = parts.join(' ');
+    }, 1000);
+}
+
+// ===== MY TEAM =====
+async function loadMyTeam() {
+    if (!currentUser) { navigate('login'); return; }
+    await loadTeam();
+}
+
+async function loadTeam() {
+    try {
+        const response = await apiFetch('/users/me');
+        if (!response.ok) return;
+        const data = await response.json();
+        currentTeam = data.team;
+        currentUser = data.user;
+        updateNav();
+        renderMyTeam();
+        renderChips();
+    } catch (err) {
+        console.error('Failed to load team:', err);
+    }
+}
+
+async function renderMyTeam() {
+    if (!currentTeam) return;
+
+    // Update header stats
+    document.getElementById('team-name').textContent = currentTeam.name;
+    document.getElementById('team-budget').textContent = currentTeam.budget_remaining.toFixed(1);
+    document.getElementById('team-points').textContent = currentTeam.total_points;
+    document.getElementById('team-transfers').textContent = `${currentTeam.current_gw_transfers}/${currentTeam.free_transfers}`;
+
+    // Load squad
+    try {
+        const response = await apiFetch(`/users/${currentTeam.id}/squad`);
+        if (!response.ok) return;
+        const squad = await response.json();
+        renderPitch(squad);
+        renderBench(squad);
+
+        // Load team value
+        const valueResponse = await apiFetch(`/team-value/${currentTeam.id}`);
+        if (valueResponse.ok) {
+            const valueData = await valueResponse.json();
+            document.getElementById('team-value').textContent = valueData.current_value.toFixed(1);
         }
     } catch (err) {
-        banner.innerHTML = '<p>Could not load gameweek data.</p>';
+        console.error('Failed to load squad:', err);
     }
-}
-
-// MY TEAM
-async function loadMyTeam() {
-    if (!state.user) {
-        showToast('Please login first', 'error');
-        showPage('login');
-        return;
-    }
-
-    try {
-        state.team = await api(`/api/users/${state.user.id}/team`);
-        renderMyTeam();
-    } catch (err) {
-        showToast(err.message, 'error');
-    }
-}
-
-function renderMyTeam() {
-    const team = state.team;
-    if (!team) return;
-
-    document.getElementById('team-name').textContent = team.name;
-    document.getElementById('team-points').textContent = team.total_points;
-    document.getElementById('team-budget').textContent = team.budget_remaining.toFixed(1);
-    document.getElementById('team-transfers').textContent = team.free_transfers;
-
-    // Nav points
-    const navPoints = document.getElementById('nav-points');
-    if (navPoints) navPoints.textContent = `${team.total_points} pts`;
-
-    // Render formation
-    renderPitch(team.squad);
-    renderBench(team.squad);
-    renderChips(team.chip_status);
-    renderTeamStats(team);
 }
 
 function renderPitch(squad) {
-    const container = document.getElementById('pitch-players');
-    if (!container) return;
-    container.innerHTML = '';
+    const pitchPlayers = document.getElementById('pitch-players');
+    if (!pitchPlayers) return;
 
-    const formation = state.formation || '4-3-3';
-    const positions = getFormationPositions(formation);
+    const starters = squad.filter(sp => sp.is_starting);
+    const formation = document.getElementById('formation-select')?.value || '3-4-3';
+    const [def, mid, fwd] = formation.split('-').map(Number);
 
-    const starters = squad.filter(p => p.is_starting);
+    // Calculate positions on pitch
+    const positions = [];
+    // GK
+    positions.push({ x: 50, y: 90 });
+    // DEF
+    for (let i = 0; i < def; i++) {
+        positions.push({ x: 15 + (i * (70 / (def - 1 || 1))), y: 70 });
+    }
+    // MID
+    for (let i = 0; i < mid; i++) {
+        positions.push({ x: 15 + (i * (70 / (mid - 1 || 1))), y: 45 });
+    }
+    // FWD
+    for (let i = 0; i < fwd; i++) {
+        positions.push({ x: 20 + (i * (60 / (fwd - 1 || 1))), y: 20 });
+    }
 
-    // Sort starters by position
-    const gk = starters.filter(p => p.player.position === 'GK');
-    const defs = starters.filter(p => p.player.position === 'DEF');
-    const mids = starters.filter(p => p.player.position === 'MID');
-    const fwds = starters.filter(p => p.player.position === 'FWD');
-
-    const allStarters = [...gk, ...defs, ...mids, ...fwds];
-
-    positions.forEach((pos, i) => {
-        if (i >= allStarters.length) return;
-        const sp = allStarters[i];
-        if (!sp || !sp.player) return;
-
-        const playerDiv = document.createElement('div');
-        playerDiv.className = 'pitch-player';
-        playerDiv.style.left = pos.x + '%';
-        playerDiv.style.top = pos.y + '%';
-
-        const circleClass = sp.is_captain ? 'captain' : (sp.is_vice_captain ? 'vice' : '');
-        const badge = sp.is_captain ? 'C' : (sp.is_vice_captain ? 'VC' : '');
-
-        const posColor = {
-            'GK': 'var(--gk)',
-            'DEF': 'var(--def)',
-            'MID': 'var(--mid)',
-            'FWD': 'var(--fwd)',
-        }[sp.player.position] || 'var(--text-muted)';
-
-        playerDiv.innerHTML = `
-            <div class="player-circle ${circleClass}" style="background:${posColor}">
-                ${badge || sp.player.position}
-            </div>
-            <div class="player-name">${sp.player.name}</div>
-            <div class="player-pts">${sp.total_points || 0}</div>
-        `;
-
-        playerDiv.onclick = () => setCaptainFromPitch(sp);
-        container.appendChild(playerDiv);
-    });
+    let posIndex = 0;
+    pitchPlayers.innerHTML = starters.map(sp => {
+        const pos = positions[posIndex++] || { x: 50, y: 50 };
+        const posIcon = sp.position === 'GK' ? '🧤' : sp.position === 'DEF' ? '🛡️' : sp.position === 'MID' ? '⚡' : '⚽';
+        return `
+            <div class="pitch-player" style="left:${pos.x}%;top:${pos.y}%"
+                 onclick="showPlayerMenu(${sp.id}, ${sp.player_id})"
+                 data-squad-id="${sp.id}" data-player-id="${sp.player_id}">
+                <div class="player-card ${sp.position.toLowerCase()} ${sp.was_autosub ? 'autosub' : ''}">
+                    ${sp.is_captain ? '<div class="captain-badge">C</div>' : ''}
+                    ${sp.is_vice_captain ? '<div class="vice-captain-badge">VC</div>' : ''}
+                    <div class="player-pos-icon">${posIcon}</div>
+                    <div class="player-name">${sp.player?.name || 'Unknown'}</div>
+                    <div class="player-team">${sp.player?.team?.name || ''}</div>
+                    <div class="player-points">${sp.gw_points || 0} pts</div>
+                </div>
+            </div>`;
+    }).join('');
 }
 
 function renderBench(squad) {
-    const container = document.getElementById('bench-grid');
-    if (!container) return;
-    container.innerHTML = '';
+    const benchGrid = document.getElementById('bench-grid');
+    if (!benchGrid) return;
 
-    const bench = squad.filter(p => !p.is_starting)
-        .sort((a, b) => (a.bench_priority || 99) - (b.bench_priority || 99));
+    const bench = squad.filter(sp => !sp.is_starting).sort((a, b) => (a.bench_priority || 99) - (b.bench_priority || 99));
 
-    bench.forEach((sp, i) => {
-        if (!sp.player) return;
-        const div = document.createElement('div');
-        div.className = `bench-player ${sp.was_autosub ? 'autosub' : ''}`;
-        div.innerHTML = `
-            <span class="pos-badge pos-${sp.player.position}">${sp.player.position}</span>
-            <span>${sp.player.name}</span>
-            <span style="margin-left:auto;color:var(--green)">${sp.total_points || 0}</span>
-            ${sp.was_autosub ? '<span style="color:var(--yellow);font-size:0.75rem;margin-left:0.5rem;">SUB</span>' : ''}
-        `;
-        container.appendChild(div);
-    });
-}
-
-function renderChips(chipStatus) {
-    const container = document.getElementById('chips-grid');
-    if (!container) return;
-
-    const currentHalf = chipStatus.current_half || 'first';
-    const halfKey = currentHalf === 'first' ? 'first_half' : 'second_half';
-
-    const chips = [
-        {
-            id: 'wildcard',
-            name: `Wildcard (${currentHalf === 'first' ? '1st' : '2nd'} Half)`,
-            desc: currentHalf === 'first' ? 'Unlimited transfers. GW 1-19.' : 'Unlimited transfers. GW 20-38.',
-            used: chipStatus[`${halfKey}_used`] || false,
-            available: chipStatus[`${halfKey}_available`] || true,
-            action: 'wildcard',
-            icon: '🔄',
-        },
-        {
-            id: 'free_hit',
-            name: `Free Hit (${currentHalf === 'first' ? '1st' : '2nd'} Half)`,
-            desc: 'Temporary squad for 1 GW.',
-            used: chipStatus[`free_hit_${halfKey}_used`] || false,
-            available: chipStatus[`free_hit_${halfKey}_available`] || true,
-            action: 'free_hit',
-            icon: '⚡',
-        },
-        {
-            id: 'bench_boost',
-            name: `Bench Boost (${currentHalf === 'first' ? '1st' : '2nd'} Half)`,
-            desc: 'All 15 players score.',
-            used: chipStatus[`bench_boost_${halfKey}_used`] || false,
-            available: chipStatus[`bench_boost_${halfKey}_available`] || true,
-            action: 'bench_boost',
-            icon: '📈',
-        },
-        {
-            id: 'triple_captain',
-            name: `Triple Captain (${currentHalf === 'first' ? '1st' : '2nd'} Half)`,
-            desc: 'Captain gets 3x points.',
-            used: chipStatus[`triple_captain_${halfKey}_used`] || false,
-            available: chipStatus[`triple_captain_${halfKey}_available`] || true,
-            action: 'triple_captain',
-            icon: '⭐',
-        },
-    ];
-
-    container.innerHTML = chips.map(chip => {
-        const isActive = chipStatus.active_chip === chip.action;
-        const statusClass = chip.used ? 'used' : (isActive ? 'active' : 'available');
-        const statusText = chip.used ? 'USED' : (isActive ? 'ACTIVE' : (chip.available ? 'Available' : 'Not Available'));
-        const statusColor = chip.used ? 'var(--red)' : (isActive ? 'var(--purple)' : (chip.available ? 'var(--green)' : 'var(--text-muted)'));
-
+    benchGrid.innerHTML = bench.map(sp => {
+        const posIcon = sp.position === 'GK' ? '🧤' : sp.position === 'DEF' ? '🛡️' : sp.position === 'MID' ? '⚡' : '⚽';
         return `
-            <div class="chip-card ${statusClass}">
-                <div style="font-size:1.5rem;">${chip.icon}</div>
-                <h4>${chip.name}</h4>
-                <p>${chip.desc}</p>
-                <span style="color:${statusColor};font-size:0.75rem;font-weight:bold;">${statusText}</span>
-                ${!chip.used && chip.available && !isActive ?
-                    `<button class="btn btn-sm btn-primary" onclick="activateChip('${chip.action}')">Activate</button>` :
-                    (isActive ? `<button class="btn btn-sm btn-warning" onclick="cancelChip('${chip.action}')">Cancel</button>` : '')
-                }
-            </div>
-        `;
+            <div class="bench-player">
+                <div class="bench-priority">#${sp.bench_priority || '?'}</div>
+                <div class="player-card ${sp.position.toLowerCase()} bench-card">
+                    <div class="player-pos-icon">${posIcon}</div>
+                    <div class="player-name">${sp.player?.name || 'Unknown'}</div>
+                    <div class="player-team">${sp.player?.team?.name || ''}</div>
+                </div>
+            </div>`;
     }).join('');
-}
-
-function renderTeamStats(team) {
-    const container = document.getElementById('team-stats');
-    if (!container || !team.squad) return;
-
-    const squad = team.squad;
-    const totalSquadPoints = squad.reduce((sum, sp) => sum + (sp.total_points || 0), 0);
-    const avgPrice = squad.reduce((sum, sp) => sum + (sp.player?.price || 0), 0) / squad.length;
-    const form = team.total_points; // Simplified
-
-    container.innerHTML = `
-        <div class="stat-card">
-            <div class="stat-value">${team.total_points}</div>
-            <div class="stat-label">Total Points</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-value">£${team.budget_remaining.toFixed(1)}m</div>
-            <div class="stat-label">Budget</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-value">${team.free_transfers}</div>
-            <div class="stat-label">Free Transfers</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-value">${team.overall_rank || '-'}</div>
-            <div class="stat-label">Overall Rank</div>
-        </div>
-    `;
-}
-
-async function activateChip(chip) {
-    if (!state.user) return;
-    try {
-        if (chip === 'wildcard') {
-            showToast('Use wildcard through the Transfers page', 'info');
-            showPage('transfers');
-            return;
-        }
-        await api(`/api/users/${state.user.id}/team/chip`, {
-            method: 'POST',
-            body: JSON.stringify({ chip, cancel: false }),
-        });
-        showToast(`${chip.replace('_', ' ').toUpperCase()} activated!`);
-        loadMyTeam();
-    } catch (err) {
-        showToast(err.message, 'error');
-    }
-}
-
-async function cancelChip(chip) {
-    if (!state.user) return;
-    try {
-        await api(`/api/users/${state.user.id}/team/chip`, {
-            method: 'POST',
-            body: JSON.stringify({ chip, cancel: true }),
-        });
-        showToast(`${chip.replace('_', ' ').toUpperCase()} cancelled`);
-        loadMyTeam();
-    } catch (err) {
-        showToast(err.message, 'error');
-    }
-}
-
-function getFormationPositions(formation) {
-    const [def, mid, fwd] = formation.split('-').map(Number);
-    const positions = [];
-
-    // GK at bottom
-    positions.push({ x: 50, y: 90 });
-
-    // DEF line
-    const defY = 70;
-    for (let i = 0; i < def; i++) {
-        positions.push({ x: 20 + (i * 60 / (def - 1 || 1)), y: defY });
-    }
-
-    // MID line
-    const midY = 45;
-    for (let i = 0; i < mid; i++) {
-        positions.push({ x: 15 + (i * 70 / (mid - 1 || 1)), y: midY });
-    }
-
-    // FWD line
-    const fwdY = 20;
-    for (let i = 0; i < fwd; i++) {
-        positions.push({ x: 25 + (i * 50 / (fwd - 1 || 1)), y: fwdY });
-    }
-
-    return positions;
 }
 
 function changeFormation() {
-    state.formation = document.getElementById('formation-select').value;
-    renderPitch(state.team.squad);
+    renderMyTeam();
 }
 
-async function setCaptainFromPitch(sp) {
-    if (!state.user) return;
-
-    // Cycle: select captain -> set vice to another player
-    const vc = state.team.squad.find(p => !p.is_captain && p.id !== sp.id);
-    try {
-        await api(`/api/users/${state.user.id}/team/captain`, {
-            method: 'PUT',
-            body: JSON.stringify({
-                captain_id: sp.id,
-                vice_captain_id: vc ? vc.id : null,
-            }),
-        });
-        showToast(`${sp.player.name} is now captain${vc ? `, ${vc.player.name} is vice` : ''}`);
-        loadMyTeam();
-    } catch (err) {
-        showToast(err.message, 'error');
-    }
-}
-
-// TRANSFERS
-async function loadTransfers() {
-    if (!state.user) {
-        showPage('login');
-        return;
-    }
+// ===== CHIPS =====
+async function renderChips() {
+    const chipsGrid = document.getElementById('chips-grid');
+    if (!chipsGrid) return;
 
     try {
-        const status = await api(`/api/transfers/status/${state.user.id}`);
-        document.getElementById('transfer-free').textContent = status.free_transfers;
-        document.getElementById('transfer-budget').textContent = status.budget_remaining.toFixed(1);
-
-        // Wildcard status
-        const wildcardEl = document.getElementById('wildcard-status');
-        if (wildcardEl) {
-            const firstAvail = status.wildcard_first_half_available;
-            const secondAvail = status.wildcard_second_half_available;
-            wildcardEl.textContent = (firstAvail || secondAvail) ? 'Available' : 'Both Used';
-        }
-
-        // Active chip
-        const activeChipEl = document.getElementById('active-chip-display');
-        if (activeChipEl && status.active_chip) {
-            activeChipEl.textContent = `Active: ${status.active_chip.replace('_', ' ').toUpperCase()}`;
-            activeChipEl.style.display = 'block';
-        }
-
-        searchTransferPlayers();
+        const response = await apiFetch(`/users/${currentTeam.id}/chips`);
+        if (!response.ok) return;
+        const chips = await response.json();
+        renderChipsGrid(chips);
     } catch (err) {
-        // Ignore status errors
+        console.error('Failed to load chips:', err);
     }
 }
 
-async function searchTransferPlayers() {
-    if (!state.user) return;
+function renderChipsGrid(chips) {
+    const chipsGrid = document.getElementById('chips-grid');
+    if (!chipsGrid) return;
 
-    const query = document.getElementById('transfer-search-input')?.value || '';
-    const position = document.getElementById('transfer-position-filter')?.value || '';
+    const chipTypes = ['wildcard', 'free_hit', 'bench_boost', 'triple_captain'];
+    const chipIcons = {
+        wildcard: '🃏',
+        free_hit: '⚡',
+        bench_boost: '📈',
+        triple_captain: '🎯'
+    };
+    const chipNames = {
+        wildcard: 'Wildcard',
+        free_hit: 'Free Hit',
+        bench_boost: 'Bench Boost',
+        triple_captain: 'Triple Captain'
+    };
 
-    try {
-        const params = new URLSearchParams();
-        if (query) params.set('search', query);
-        if (position) params.set('position', position);
-
-        const players = await api(`/api/players/?${params}`);
-        renderTransferList(players);
-    } catch (err) {
-        showToast(err.message, 'error');
-    }
-}
-
-function renderTransferList(players) {
-    const container = document.getElementById('transfer-results');
-    if (!container) return;
-
-    const squadPlayerIds = new Set(
-        (state.team?.squad || []).map(sp => sp.player_id)
-    );
-
-    container.innerHTML = players.map(p => {
-        const inSquad = squadPlayerIds.has(p.id);
-        const priceChange = p.price_change || 0;
-        const priceChangeClass = priceChange > 0 ? 'price-up' : (priceChange < 0 ? 'price-down' : '');
-        const priceChangeIcon = priceChange > 0 ? '↑' : (priceChange < 0 ? '↓' : '');
+    chipsGrid.innerHTML = chipTypes.map(type => {
+        const chip = chips.find(c => c.type === type);
+        const isUsedFirst = chip?.first_half_used || false;
+        const isUsedSecond = chip?.second_half_used || false;
+        const isActive = chip?.active || false;
+        const currentHalf = chip?.current_half || 'first';
+        const isAvailable = currentHalf === 'first' ? !isUsedFirst : !isUsedSecond;
 
         return `
-            <div class="player-card ${inSquad ? 'in-squad' : ''}"
-                 onclick="${inSquad ? `selectPlayerOut(${p.id})` : `executeTransfer(${p.id})`}">
-                <span class="pos-badge pos-${p.position}">${p.position}</span>
-                <div class="player-info">
-                    <div class="player-name">${p.name}</div>
-                    <div class="player-team">${p.team_id ? 'Team ' + p.team_id : ''}</div>
+            <div class="chip-card ${type} ${isActive ? 'active' : ''} ${!isAvailable ? 'used' : ''}">
+                <div class="chip-icon">${chipIcons[type]}</div>
+                <div class="chip-name">${chipNames[type]}</div>
+                <div class="chip-status">
+                    ${isActive ? 'ACTIVE' : isAvailable ? 'Available' : 'Used'}
                 </div>
-                <div class="player-stats">
-                    <span class="player-price ${priceChangeClass}">${p.price.toFixed(1)}m ${priceChangeIcon}</span>
-                    ${inSquad ? '<span style="color:var(--green)">OWNED</span>' : ''}
-                    ${p.form ? `<span style="color:var(--yellow)">Form: ${p.form}</span>` : ''}
-                    ${p.ict_index ? `<span>ICT: ${p.ict_index}</span>` : ''}
+                <div class="chip-halves">
+                    <span class="chip-half ${isUsedFirst ? 'used' : ''}">${currentHalf === 'first' ? '▶' : ''}1st</span>
+                    <span class="chip-half ${isUsedSecond ? 'used' : ''}">${currentHalf === 'second' ? '▶' : ''}2nd</span>
                 </div>
-            </div>
-        `;
+                ${isActive ? `<button class="btn btn-sm btn-danger" onclick="cancelChip('${type}')">Cancel</button>` : ''}
+                ${isAvailable && !isActive ? `<button class="btn btn-sm btn-success" onclick="activateChip('${type}')">Activate</button>` : ''}
+            </div>`;
     }).join('');
 }
 
-function selectPlayerOut(playerId) {
-    if (!state.team) return;
-    const sp = state.team.squad.find(s => s.player_id === playerId);
-    if (!sp) return;
-
-    state.transferPlayerOut = sp;
-    const selectedDiv = document.getElementById('transfer-selected');
-    selectedDiv.style.display = 'flex';
-    document.getElementById('selected-out').innerHTML = `
-        <span class="pos-badge pos-${sp.player.position}">${sp.player.position}</span>
-        <strong>${sp.player.name}</strong>
-        <span>${sp.player.price.toFixed(1)}m</span>
-        ${sp.purchase_price ? `<span style="font-size:0.75rem;color:var(--text-muted)">Bought: ${sp.purchase_price.toFixed(1)}m</span>` : ''}
-    `;
-}
-
-async function executeTransfer(playerInId) {
-    if (!state.user || !state.transferPlayerOut) {
-        showToast('Select a player to swap out first', 'error');
-        return;
-    }
-
+async function activateChip(type) {
     try {
-        const result = await api(`/api/transfers/`, {
+        const response = await apiFetch(`/users/${currentTeam.id}/chips/activate/${type}`, {
             method: 'POST',
-            body: JSON.stringify({
-                player_in_id: playerInId,
-                player_out_id: state.transferPlayerOut.player_id,
-                user_id: state.user.id,
-            }),
         });
-
-        showToast(`Transfer complete! ${result.transfer_cost || 'Free'}`);
-        state.transferPlayerOut = null;
-        const selectedDiv = document.getElementById('transfer-selected');
-        if (selectedDiv) selectedDiv.style.display = 'none';
-        loadMyTeam();
-        loadTransfers();
+        if (response.ok) {
+            showToast(`${type.replace('_', ' ')} activated!`, 'success');
+            renderChips();
+        } else {
+            const err = await response.json();
+            showToast(err.detail || 'Failed to activate chip', 'error');
+        }
     } catch (err) {
-        showToast(err.message, 'error');
+        showToast('Failed to activate chip: ' + err.message, 'error');
     }
 }
 
-// PLAYERS
+async function cancelChip(type) {
+    try {
+        const response = await apiFetch(`/users/${currentTeam.id}/chips/cancel/${type}`, {
+            method: 'POST',
+        });
+        if (response.ok) {
+            showToast(`${type.replace('_', ' ')} cancelled`, 'success');
+            renderChips();
+        } else {
+            const err = await response.json();
+            showToast(err.detail || 'Failed to cancel chip', 'error');
+        }
+    } catch (err) {
+        showToast('Failed to cancel chip: ' + err.message, 'error');
+    }
+}
+
+// ===== PLAYERS =====
 async function loadPlayers() {
-    const query = document.getElementById('player-search')?.value || '';
+    const search = document.getElementById('player-search')?.value || '';
     const position = document.getElementById('player-position')?.value || '';
-    const sortBy = document.getElementById('player-sort')?.value || 'goals';
+    const sort = document.getElementById('player-sort')?.value || 'total_points';
+
+    let url = `/players?sort=${sort}`;
+    if (search) url += `&search=${encodeURIComponent(search)}`;
+    if (position) url += `&position=${position}`;
 
     try {
-        const params = new URLSearchParams();
-        if (query) params.set('search', query);
-        if (position) params.set('position', position);
-        params.set('order_by', sortBy);
-
-        const players = await api(`/api/players/?${params}`);
-        renderPlayerList(players);
+        const response = await apiFetch(url);
+        if (!response.ok) return;
+        const players = await response.json();
+        renderPlayers(players);
     } catch (err) {
-        showToast(err.message, 'error');
+        console.error('Failed to load players:', err);
     }
 }
 
-function renderPlayerList(players) {
+function renderPlayers(players) {
     const container = document.getElementById('players-container');
     if (!container) return;
 
-    const squadPlayerIds = new Set(
-        (state.team?.squad || []).map(sp => sp.player_id)
-    );
-
-    container.innerHTML = players.map(p => {
-        const inSquad = squadPlayerIds.has(p.id);
-        const priceChange = p.price_change || 0;
-        const priceChangeIcon = priceChange > 0 ? '↑' : (priceChange < 0 ? '↓' : '');
-
-        return `
-            <div class="player-card ${inSquad ? 'in-squad' : ''}">
-                <span class="pos-badge pos-${p.position}">${p.position}</span>
-                <div class="player-info">
-                    <div class="player-name">${p.name}</div>
-                    <div class="player-team">${p.team_id ? 'Team ' + p.team_id : ''}</div>
-                </div>
-                <div class="player-stats">
-                    <span class="player-price">${p.price.toFixed(1)}m ${priceChangeIcon}</span>
-                    <span style="color:var(--green)">${p.total_points || 0} pts</span>
-                    ${p.form ? `<span>Form: ${p.form}</span>` : ''}
-                    ${p.ict_index ? `<span>ICT: ${p.ict_index}</span>` : ''}
-                    ${inSquad ? '<span style="color:var(--green)">✓ OWNED</span>' : ''}
-                    ${p.is_injured ? '<span style="color:var(--red)">INJ</span>' : ''}
-                </div>
-            </div>
-        `;
-    }).join('');
+    container.innerHTML = `
+        <div class="players-table">
+            <table>
+                <thead>
+                    <tr>
+                        <th>#</th><th>Name</th><th>Team</th><th>Pos</th>
+                        <th>Price</th><th>TS</th><th>CS</th><th>A</th><th>F</th>
+                        <th>Form</th><th>ICT</th><th>%Sel</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${players.map(p => `
+                        <tr onclick="showPlayerDetail(${p.id})">
+                            <td>${p.id}</td>
+                            <td class="player-name">${p.name}</td>
+                            <td>${p.team?.name || ''}</td>
+                            <td><span class="pos-badge ${p.position.toLowerCase()}">${p.position}</span></td>
+                            <td>£${p.price.toFixed(1)}m</td>
+                            <td>${p.total_points_season || 0}</td>
+                            <td>${p.clean_sheets || 0}</td>
+                            <td>${p.assists || 0}</td>
+                            <td>${p.form || '0.0'}</td>
+                            <td>${p.form || '0.0'}</td>
+                            <td>${p.ict_index || '0.0'}</td>
+                            <td>${(p.selected_by_percent || 0).toFixed(1)}%</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        </div>`;
 }
 
-// GAMEWEEKS
+// ===== FIXTURES =====
+async function loadFixtures() {
+    const gwSelect = document.getElementById('fixtures-gw-select')?.value || '';
+    const teamFilter = document.getElementById('fixtures-team-filter')?.value || '';
+
+    let url = '/fixtures/';
+    if (gwSelect) url += `?gameweek_id=${gwSelect}`;
+
+    try {
+        const response = await apiFetch(url);
+        if (!response.ok) return;
+        const data = await response.json();
+        renderFixtures(data.fixtures);
+
+        // Load gameweeks for select
+        loadGameweekOptions();
+        loadTeamFilterOptions();
+    } catch (err) {
+        console.error('Failed to load fixtures:', err);
+    }
+}
+
+function renderFixtures(fixtures) {
+    const container = document.getElementById('fixtures-container');
+    if (!container) return;
+
+    if (!fixtures || fixtures.length === 0) {
+        container.innerHTML = '<div class="empty-state">No fixtures available</div>';
+        return;
+    }
+
+    // Group by gameweek
+    const byGW = {};
+    fixtures.forEach(f => {
+        const gw = f.gameweek_id;
+        if (!byGW[gw]) byGW[gw] = [];
+        byGW[gw].push(f);
+    });
+
+    let html = '';
+    Object.keys(byGW).sort((a, b) => a - b).forEach(gwId => {
+        const gwFixtures = byGW[gwId];
+        const firstFixture = gwFixtures[0];
+        const date = firstFixture.date ? new Date(firstFixture.date).toLocaleDateString() : '';
+
+        html += `<div class="fixture-gw">
+            <h3>Gameweek ${gwId} ${date}</h3>
+            <div class="fixture-list">`;
+
+        gwFixtures.forEach(f => {
+            const homeDiff = getDifficultyClass(f.home_difficulty);
+            const awayDiff = getDifficultyClass(f.away_difficulty);
+
+            html += `
+                <div class="fixture-row">
+                    <div class="fixture-team home">
+                        <span class="team-name">${f.home_team}</span>
+                        <span class="difficulty-badge ${homeDiff}">${f.home_difficulty}</span>
+                    </div>
+                    <div class="fixture-result">
+                        ${f.played ? `<span class="score">${f.home_score}-${f.away_score}</span>` : '<span class="vs">vs</span>'}
+                    </div>
+                    <div class="fixture-team away">
+                        <span class="difficulty-badge ${awayDiff}">${f.away_difficulty}</span>
+                        <span class="team-name">${f.away_team}</span>
+                    </div>
+                </div>`;
+        });
+
+        html += '</div></div>';
+    });
+
+    container.innerHTML = html;
+}
+
+function getDifficultyClass(difficulty) {
+    if (difficulty >= 5) return 'hh';
+    if (difficulty >= 4) return 'h';
+    if (difficulty >= 3) return 'm';
+    if (difficulty >= 2) return 'e';
+    return 'ee';
+}
+
+async function loadGameweekOptions() {
+    const select = document.getElementById('fixtures-gw-select');
+    if (!select) return;
+
+    try {
+        const response = await apiFetch('/gameweeks/');
+        if (!response.ok) return;
+        const data = await response.json();
+
+        const currentValue = select.value;
+        select.innerHTML = '<option value="">All Gameweeks</option>';
+        data.gameweeks.forEach(gw => {
+            select.innerHTML += `<option value="${gw.id}">GW ${gw.number}</option>`;
+        });
+        select.value = currentValue;
+    } catch (err) {
+        console.error('Failed to load GW options:', err);
+    }
+}
+
+async function loadTeamFilterOptions() {
+    const select = document.getElementById('fixtures-team-filter');
+    if (!select) return;
+
+    try {
+        const response = await apiFetch('/teams/');
+        if (!response.ok) return;
+        const data = await response.json();
+
+        const currentValue = select.value;
+        select.innerHTML = '<option value="">All Teams</option>';
+        data.teams.forEach(team => {
+            select.innerHTML += `<option value="${team.id}">${team.name}</option>`;
+        });
+        select.value = currentValue;
+    } catch (err) {
+        console.error('Failed to load team options:', err);
+    }
+}
+
+// ===== GAMEWEEKS =====
 async function loadGameweeks() {
     try {
-        const gameweeks = await api('/api/gameweeks/');
-        const container = document.getElementById('gameweeks-container');
-        if (!container) return;
+        const response = await apiFetch('/gameweeks/');
+        if (!response.ok) return;
+        const data = await response.json();
+        renderGameweeks(data);
 
-        container.innerHTML = gameweeks.map(gw => `
-            <div class="gameweek-card ${gw.closed ? 'closed' : ''} ${gw.scored ? 'scored' : ''}">
-                <div class="gameweek-header">
-                    <h4>Gameweek ${gw.number}</h4>
-                    <span class="${gw.closed ? 'status-closed' : 'status-active'}">
-                        ${gw.closed ? 'Closed' : 'Open'}
-                    </span>
-                </div>
-                <div class="gameweek-details">
-                    <p>Deadline: ${gw.deadline ? new Date(gw.deadline).toLocaleString() : 'N/A'}</p>
-                    <p>${gw.scored ? '✓ Scored' : (gw.closed ? 'Pending score' : 'Open for transfers')}</p>
-                </div>
+        // Load scoring progress
+        loadScoringProgress(data.gameweeks);
+    } catch (err) {
+        console.error('Failed to load gameweeks:', err);
+    }
+}
+
+function renderGameweeks(data) {
+    const container = document.getElementById('gameweeks-container');
+    if (!container) return;
+
+    container.innerHTML = data.gameweeks.map(gw => `
+        <div class="gw-card ${gw.closed ? 'closed' : ''} ${gw.scored ? 'scored' : ''}">
+            <div class="gw-card-header">
+                <h3>Gameweek ${gw.number}</h3>
+                <span class="badge ${gw.closed ? 'badge-closed' : 'badge-open'}">${gw.closed ? 'Closed' : 'Open'}</span>
             </div>
-        `).join('');
-    } catch (err) {
-        showToast(err.message, 'error');
-    }
-}
-
-// LEADERBOARD
-async function loadLeaderboard() {
-    try {
-        const data = await api('/api/leaderboard/');
-        state.leaderboard = data.entries || [];
-        renderLeaderboard(state.leaderboard);
-    } catch (err) {
-        showToast(err.message, 'error');
-    }
-}
-
-function renderLeaderboard(entries) {
-    const container = document.getElementById('leaderboard-table');
-    if (!container) return;
-
-    if (!entries || entries.length === 0) {
-        container.innerHTML = '<p>No entries yet.</p>';
-        return;
-    }
-
-    container.innerHTML = `
-        <table class="leaderboard-table">
-            <thead>
-                <tr>
-                    <th>Rank</th>
-                    <th>Manager</th>
-                    <th>Team</th>
-                    <th>GW Pts</th>
-                    <th>Total</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${entries.map(e => `
-                    <tr class="${e.user_id === state.user?.id ? 'your-row' : ''}">
-                        <td>${e.rank}</td>
-                        <td>${e.username}</td>
-                        <td>${e.team_name}</td>
-                        <td>${e.gameweek_points ?? '-'}</td>
-                        <td><strong>${e.total_points}</strong></td>
-                    </tr>
-                `).join('')}
-            </tbody>
-        </table>
-    `;
-}
-
-// LEAGUES
-async function loadLeagues() {
-    if (!state.user) {
-        showPage('login');
-        return;
-    }
-
-    try {
-        const data = await api(`/api/leagues/my-leagues/${state.user.id}`);
-        state.leagues = data.leagues || [];
-        renderLeagues(state.leagues);
-    } catch (err) {
-        showToast(err.message, 'error');
-    }
-}
-
-function renderLeagues(leagues) {
-    const container = document.getElementById('leagues-container');
-    if (!container) return;
-
-    if (!leagues || leagues.length === 0) {
-        container.innerHTML = '<p>You are not in any leagues yet. Create or join one!</p>';
-        return;
-    }
-
-    container.innerHTML = leagues.map(l => `
-        <div class="league-card">
-            <h4>${l.name}</h4>
-            <p>Members: ${l.member_count || 0} | Your Rank: ${l.your_rank || '-'}</p>
-            <p>Code: <code>${l.code}</code></p>
-            ${l.is_admin ? '<span style="color:var(--purple);font-size:0.75rem;">Admin</span>' : ''}
+            <div class="gw-card-body">
+                <p>Deadline: ${gw.deadline ? new Date(gw.deadline).toLocaleString() : 'N/A'}</p>
+                <p>Fixtures: ${gw.fixture_count || 0}</p>
+                ${gw.scored ? '<span class="badge badge-scored">Scored</span>' : ''}
+                ${gw.bonus_calculated ? '<span class="badge badge-bonus">Bonus Calculated</span>' : ''}
+            </div>
         </div>
     `).join('');
 }
 
-// HISTORY
-async function loadHistory() {
-    if (!state.user) {
-        showPage('login');
+async function loadScoringProgress(gameweeks) {
+    const progressDiv = document.getElementById('scoring-progress');
+    if (!progressDiv) return;
+
+    const currentGW = gameweeks.find(gw => !gw.closed);
+    if (!currentGW) {
+        progressDiv.innerHTML = '';
         return;
     }
 
     try {
-        const data = await api(`/api/users/${state.user.id}/team/history`);
-        renderHistory(data);
+        const response = await apiFetch(`/fixtures/progress/${currentGW.id}`);
+        if (!response.ok) return;
+        const data = await response.json();
+
+        progressDiv.innerHTML = `
+            <div class="scoring-progress-bar">
+                <div class="progress-label">
+                    <span>Scoring Progress: ${data.fixtures_played}/${data.total_fixtures}</span>
+                    <span>${data.progress_percent}%</span>
+                </div>
+                <div class="progress-track">
+                    <div class="progress-fill" style="width: ${data.progress_percent}%"></div>
+                </div>
+            </div>`;
     } catch (err) {
-        showToast(err.message, 'error');
+        console.error('Failed to load scoring progress:', err);
     }
 }
 
-function renderHistory(data) {
-    const container = document.getElementById('history-container');
-    if (!container) return;
+async function syncGameweeks() {
+    try {
+        const response = await apiFetch('/gameweeks/sync', { method: 'POST' });
+        if (response.ok) {
+            showToast('Fixtures synced!', 'success');
+            loadGameweeks();
+        } else {
+            const err = await response.json();
+            showToast(err.detail || 'Failed to sync', 'error');
+        }
+    } catch (err) {
+        showToast('Sync failed: ' + err.message, 'error');
+    }
+}
 
-    if (!data.history || data.history.length === 0) {
-        container.innerHTML = '<p>No gameweek history yet.</p>';
+// ===== HISTORY PAGE =====
+async function loadHistoryPage() {
+    if (!currentUser) { navigate('login'); return; }
+    await loadHistorySummary();
+    await loadGameweekOptionsForHistory();
+    await loadTransferHistory();
+}
+
+async function loadHistorySummary() {
+    const container = document.getElementById('history-summary');
+    if (!container || !currentTeam) return;
+
+    try {
+        const response = await apiFetch(`/leaderboard/${currentTeam.user_id}/history`);
+        if (!response.ok) return;
+        const data = await response.json();
+
+        if (!data.history || data.history.length === 0) {
+            container.innerHTML = '<div class="empty-state">No history yet</div>';
+            return;
+        }
+
+        // Summary stats
+        const totalGWs = data.history.length;
+        const avgPoints = (data.history.reduce((sum, h) => sum + h.points, 0) / totalGWs).toFixed(1);
+        const bestGW = Math.max(...data.history.map(h => h.points));
+        const worstGW = Math.min(...data.history.map(h => h.points));
+
+        container.innerHTML = `
+            <div class="history-stats-grid">
+                <div class="history-stat-card">
+                    <div class="stat-value">${data.history[totalGWs - 1]?.total_points || 0}</div>
+                    <div class="stat-label">Total Points</div>
+                </div>
+                <div class="history-stat-card">
+                    <div class="stat-value">${avgPoints}</div>
+                    <div class="stat-label">Average/GW</div>
+                </div>
+                <div class="history-stat-card">
+                    <div class="stat-value">${bestGW}</div>
+                    <div class="stat-label">Best GW</div>
+                </div>
+                <div class="history-stat-card">
+                    <div class="stat-value">${worstGW}</div>
+                    <div class="stat-label">Worst GW</div>
+                </div>
+            </div>
+            <div class="history-chart">
+                ${data.history.map(h => `
+                    <div class="history-bar" style="height: ${Math.max(5, h.points * 2)}%" title="GW ${h.gameweek}: ${h.points} pts">
+                        <span class="bar-label">GW${h.gameweek}</span>
+                        <span class="bar-value">${h.points}</span>
+                    </div>
+                `).join('')}
+            </div>`;
+    } catch (err) {
+        console.error('Failed to load history:', err);
+    }
+}
+
+async function loadGameweekOptionsForHistory() {
+    const select = document.getElementById('history-gw-select');
+    if (!select) return;
+
+    try {
+        const response = await apiFetch('/gameweeks/');
+        if (!response.ok) return;
+        const data = await response.json();
+
+        select.innerHTML = '<option value="">Select Gameweek</option>';
+        data.gameweeks.forEach(gw => {
+            select.innerHTML += `<option value="${gw.id}">GW ${gw.number}</option>`;
+        });
+    } catch (err) {
+        console.error('Failed to load GW options:', err);
+    }
+}
+
+async function loadGameweekBreakdown() {
+    const select = document.getElementById('history-gw-select');
+    const breakdown = document.getElementById('history-breakdown');
+    if (!select || !breakdown || !currentTeam) return;
+
+    const gwId = select.value;
+    if (!gwId) {
+        breakdown.innerHTML = '<div class="empty-state">Select a gameweek to see the breakdown</div>';
         return;
     }
 
-    container.innerHTML = `
-        <h4>Team: ${data.team_name}</h4>
-        <table class="leaderboard-table">
-            <thead>
-                <tr>
-                    <th>GW</th>
-                    <th>Points</th>
-                    <th>Total</th>
-                    <th>Rank</th>
-                    <th>Chip</th>
-                    <th>Transfers</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${data.history.map(h => `
-                    <tr>
-                        <td>${h.gameweek}</td>
-                        <td><strong>${h.points}</strong></td>
-                        <td>${h.total_points}</td>
-                        <td>${h.rank || '-'}</td>
-                        <td>${h.chip_used || '-'}</td>
-                        <td>${h.transfers_made}${h.transfers_cost ? ` (-${h.transfers_cost})` : ''}</td>
-                    </tr>
+    try {
+        const response = await apiFetch(`/gameweek-history/${currentTeam.id}/${gwId}`);
+        if (!response.ok) return;
+        const data = await response.json();
+
+        breakdown.innerHTML = `
+            <div class="gw-breakdown-header">
+                <h3>Gameweek ${data.gameweek} Breakdown</h3>
+                <div class="breakdown-stats">
+                    <span>Total: ${data.total_points} pts</span>
+                    <span>Starting: ${data.starting_points}</span>
+                    <span>Bench: ${data.bench_points}</span>
+                    ${data.chip_used ? `<span class="chip-badge">${data.chip_used}</span>` : ''}
+                </div>
+            </div>
+            <div class="player-breakdown-grid">
+                ${data.player_breakdown.map(p => `
+                    <div class="player-breakdown-card ${p.is_starting ? 'starting' : 'bench'}">
+                        <div class="pb-name">${p.name}</div>
+                        <div class="pb-details">
+                            <span class="pos-badge ${p.position.toLowerCase()}">${p.position}</span>
+                            ${p.is_captain ? '<span class="captain-badge-sm">C</span>' : ''}
+                            ${p.is_vice_captain ? '<span class="vice-badge-sm">VC</span>' : ''}
+                            ${p.was_autosub ? '<span class="autosub-badge">AUTO</span>' : ''}
+                        </div>
+                        <div class="pb-stats">
+                            <span>${p.goals}G</span>
+                            <span>${p.assists}A</span>
+                            <span>${p.minutes}min</span>
+                            ${p.bonus > 0 ? `<span class="bonus-badge">+${p.bonus}</span>` : ''}
+                        </div>
+                        <div class="pb-points ${p.points > 0 ? 'positive' : ''}">${p.points} pts</div>
+                    </div>
                 `).join('')}
-            </tbody>
-        </table>
-    `;
+            </div>`;
+    } catch (err) {
+        console.error('Failed to load breakdown:', err);
+        breakdown.innerHTML = '<div class="error-state">Failed to load breakdown</div>';
+    }
 }
 
-// Init
-updateNav();
-if (state.user) {
-    showPage('my-team');
-} else {
-    showPage('home');
+async function loadTransferHistory() {
+    const container = document.getElementById('transfer-history-container');
+    if (!container || !currentTeam) return;
+
+    try {
+        const response = await apiFetch(`/gameweek-history/transfer-history/${currentTeam.id}`);
+        if (!response.ok) return;
+        const data = await response.json();
+
+        if (!data.transfers || data.transfers.length === 0) {
+            container.innerHTML = '<div class="empty-state">No transfers yet</div>';
+            return;
+        }
+
+        container.innerHTML = data.transfers.map(t => `
+            <div class="transfer-history-row">
+                <span class="transfer-gw">GW ${t.gameweek || '?'}</span>
+                <span class="transfer-in">➕ ${t.player_in?.name || '?'}</span>
+                ${t.player_out ? `<span class="transfer-out">➖ ${t.player_out.name} (${t.player_out.points_scored} pts)</span>` : ''}
+                ${t.is_wildcard ? '<span class="badge badge-wildcard">WC</span>' : ''}
+                ${t.is_free_hit ? '<span class="badge badge-freehit">FH</span>' : ''}
+            </div>
+        `).join('');
+    } catch (err) {
+        console.error('Failed to load transfer history:', err);
+    }
 }
+
+// ===== LEADERBOARD =====
+async function loadLeaderboard() {
+    try {
+        const response = await apiFetch('/leaderboard/?limit=100');
+        if (!response.ok) return;
+        const data = await response.json();
+        renderLeaderboard(data);
+
+        // Load user rank if logged in
+        if (currentUser) {
+            loadUserRank();
+        }
+    } catch (err) {
+        console.error('Failed to load leaderboard:', err);
+    }
+}
+
+function renderLeaderboard(data) {
+    const container = document.getElementById('leaderboard-container');
+    if (!container) return;
+
+    // Stats
+    const statsDiv = document.getElementById('leaderboard-stats');
+    if (statsDiv) {
+        statsDiv.innerHTML = `<span>Total Teams: ${data.total_teams}</span>`;
+    }
+
+    container.innerHTML = `
+        <div class="leaderboard-table">
+            <table>
+                <thead>
+                    <tr><th>Rank</th><th>Manager</th><th>Team</th><th>Total</th><th>GW</th></tr>
+                </thead>
+                <tbody>
+                    ${data.entries.map(e => `
+                        <tr>
+                            <td>${e.rank}</td>
+                            <td>${e.username}</td>
+                            <td>${e.team_name}</td>
+                            <td class="points">${e.total_points}</td>
+                            <td>${e.gameweek_points ?? '-'}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        </div>`;
+}
+
+async function loadUserRank() {
+    const statsDiv = document.getElementById('leaderboard-stats');
+    if (!statsDiv || !currentTeam) return;
+
+    try {
+        const response = await apiFetch(`/leaderboard/${currentTeam.user_id}/rank`);
+        if (!response.ok) return;
+        const data = await response.json();
+
+        statsDiv.innerHTML = `
+            <span>Total Teams: ${data.total_teams}</span>
+            <span>Your Rank: #${data.rank}</span>
+            <span>Percentile: ${data.percentile}%</span>
+            ${data.rank_change ? `<span class="rank-change ${data.rank_change > 0 ? 'up' : data.rank_change < 0 ? 'down' : ''}">${data.rank_change > 0 ? '↑' : data.rank_change < 0 ? '↓' : '='} ${Math.abs(data.rank_change)}</span>` : ''}
+        `;
+    } catch (err) {
+        console.error('Failed to load user rank:', err);
+    }
+}
+
+// ===== DREAM TEAM =====
+async function loadDreamTeamPage() {
+    const select = document.getElementById('dream-team-gw-select');
+    if (!select) return;
+
+    try {
+        const response = await apiFetch('/gameweeks/');
+        if (!response.ok) return;
+        const data = await response.json();
+
+        const currentValue = select.value;
+        select.innerHTML = '<option value="">Select Gameweek</option>';
+        data.gameweeks.forEach(gw => {
+            select.innerHTML += `<option value="${gw.id}">GW ${gw.number}</option>`;
+        });
+        select.value = currentValue;
+
+        if (currentValue) {
+            loadDreamTeam();
+        }
+    } catch (err) {
+        console.error('Failed to load GW options:', err);
+    }
+}
+
+async function loadDreamTeam() {
+    const select = document.getElementById('dream-team-gw-select');
+    const container = document.getElementById('dream-team-players');
+    const totalDiv = document.getElementById('dream-team-total');
+
+    if (!select || !container) return;
+
+    const gwId = select.value;
+    if (!gwId) {
+        container.innerHTML = '<div class="empty-state">Select a gameweek</div>';
+        return;
+    }
+
+    try {
+        const response = await apiFetch(`/dream-team/${gwId}`);
+        if (!response.ok) return;
+        const data = await response.json();
+
+        if (!data.players || data.players.length === 0) {
+            container.innerHTML = '<div class="empty-state">Dream Team not yet calculated</div>';
+            return;
+        }
+
+        // Render dream team on pitch
+        const positions = data.players.map((p, i) => ({
+            x: 50, y: 90  // GK
+        }))[0];
+
+        // Simple formation rendering
+        const defPositions = data.players.filter(p => p.position === 'DEF');
+        const midPositions = data.players.filter(p => p.position === 'MID');
+        const fwdPositions = data.players.filter(p => p.position === 'FWD');
+
+        let html = '';
+        const gk = data.players.find(p => p.position === 'GK');
+        if (gk) {
+            html += createDreamTeamPlayer(gk, 50, 90);
+        }
+
+        defPositions.forEach((p, i) => {
+            const x = 15 + (i * (70 / (defPositions.length - 1 || 1)));
+            html += createDreamTeamPlayer(p, x, 70);
+        });
+
+        midPositions.forEach((p, i) => {
+            const x = 15 + (i * (70 / (midPositions.length - 1 || 1)));
+            html += createDreamTeamPlayer(p, x, 45);
+        });
+
+        fwdPositions.forEach((p, i) => {
+            const x = 20 + (i * (60 / (fwdPositions.length - 1 || 1)));
+            html += createDreamTeamPlayer(p, x, 20);
+        });
+
+        container.innerHTML = html;
+
+        if (totalDiv) {
+            totalDiv.innerHTML = `<div class="dream-team-total-score">Total: ${data.total_points} points</div>`;
+        }
+    } catch (err) {
+        console.error('Failed to load dream team:', err);
+    }
+}
+
+function createDreamTeamPlayer(player, x, y) {
+    return `
+        <div class="dream-team-player" style="left:${x}%;top:${y}%">
+            <div class="dream-player-card">
+                <div class="dream-player-name">${player.name}</div>
+                <div class="dream-player-team">${player.team_name}</div>
+                <div class="dream-player-points">${player.points} pts</div>
+            </div>
+        </div>`;
+}
+
+// ===== LEAGUES =====
+async function loadLeagues() {
+    if (!currentUser) { navigate('login'); return; }
+    const container = document.getElementById('leagues-container');
+    if (!container) return;
+
+    try {
+        const response = await apiFetch('/mini_leagues/');
+        if (!response.ok) return;
+        const data = await response.json();
+
+        if (!data.leagues || data.leagues.length === 0) {
+            container.innerHTML = '<div class="empty-state">No leagues yet. Create or join one!</div>';
+            return;
+        }
+
+        container.innerHTML = data.leagues.map(l => `
+            <div class="league-card">
+                <h3>${l.name}</h3>
+                <p>Members: ${l.members?.length || 0}</p>
+                <p>Code: ${l.code}</p>
+                <div class="league-standings">
+                    ${l.standings?.map(s => `
+                        <div class="standings-row">
+                            <span class="rank">#${s.rank}</span>
+                            <span>${s.team_name}</span>
+                            <span class="points">${s.total_points} pts</span>
+                        </div>
+                    `).join('') || ''}
+                </div>
+            </div>
+        `).join('');
+    } catch (err) {
+        console.error('Failed to load leagues:', err);
+    }
+}
+
+function showCreateLeague() {
+    const name = prompt('League name:');
+    if (!name) return;
+
+    fetch(`${API_BASE}/mini_leagues/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${getToken()}`
+        },
+        body: JSON.stringify({ name, is_h2h: false })
+    }).then(r => r.json()).then(data => {
+        showToast(`League created! Code: ${data.code}`, 'success');
+        loadLeagues();
+    });
+}
+
+function showJoinLeague() {
+    const code = prompt('Enter league code:');
+    if (!code) return;
+
+    fetch(`${API_BASE}/mini_leagues/${code}/join`, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${getToken()}`
+        }
+    }).then(r => r.json()).then(data => {
+        showToast('Joined league!', 'success');
+        loadLeagues();
+    });
+}
+
+// ===== TRANSFERS =====
+async function loadTransfersPage() {
+    if (!currentUser) { navigate('login'); return; }
+    await loadTeam();
+}
+
+async function searchTransferPlayers() {
+    const search = document.getElementById('transfer-search-input')?.value || '';
+    const position = document.getElementById('transfer-position-filter')?.value || '';
+
+    let url = `/players?limit=50`;
+    if (search) url += `&search=${encodeURIComponent(search)}`;
+    if (position) url += `&position=${position}`;
+
+    try {
+        const response = await apiFetch(url);
+        if (!response.ok) return;
+        const players = await response.json();
+
+        const container = document.getElementById('transfer-results');
+        if (!container) return;
+
+        // Check which players are in our squad
+        const squadIds = currentTeam?.squad?.map(sp => sp.player_id) || [];
+
+        container.innerHTML = players.map(p => {
+            const isInSquad = squadIds.includes(p.id);
+            return `
+                <div class="transfer-player-row ${isInSquad ? 'in-squad' : ''}">
+                    <span class="pos-badge ${p.position.toLowerCase()}">${p.position}</span>
+                    <span class="player-name">${p.name}</span>
+                    <span>${p.team?.name || ''}</span>
+                    <span>£${p.price.toFixed(1)}m</span>
+                    <span>${p.total_points_season || 0} pts</span>
+                    <span>${(p.selected_by_percent || 0).toFixed(1)}%</span>
+                    ${isInSquad
+                        ? `<button class="btn btn-sm btn-outline" onclick="transferOut(${p.id})">Transfer Out</button>`
+                        : `<button class="btn btn-sm btn-primary" onclick="transferIn(${p.id})">Transfer In</button>`
+                    }
+                </div>`;
+        }).join('');
+    } catch (err) {
+        console.error('Failed to search players:', err);
+    }
+}
+
+async function transferIn(playerId) {
+    if (!currentTeam) return;
+    try {
+        const response = await apiFetch('/transfers/player', {
+            method: 'POST',
+            body: JSON.stringify({
+                fantasy_team_id: currentTeam.id,
+                player_in_id: playerId,
+            }),
+        });
+        if (response.ok) {
+            showToast('Player transferred in!', 'success');
+            loadTeam();
+            searchTransferPlayers();
+        } else {
+            const err = await response.json();
+            showToast(err.detail || 'Transfer failed', 'error');
+        }
+    } catch (err) {
+        showToast('Transfer failed: ' + err.message, 'error');
+    }
+}
+
+async function transferOut(playerId) {
+    if (!currentTeam) return;
+    const confirmOut = confirm('Transfer this player out?');
+    if (!confirmOut) return;
+
+    try {
+        const response = await apiFetch('/transfers/player', {
+            method: 'POST',
+            body: JSON.stringify({
+                fantasy_team_id: currentTeam.id,
+                player_out_id: playerId,
+            }),
+        });
+        if (response.ok) {
+            showToast('Player transferred out!', 'success');
+            loadTeam();
+            searchTransferPlayers();
+        } else {
+            const err = await response.json();
+            showToast(err.detail || 'Transfer failed', 'error');
+        }
+    } catch (err) {
+        showToast('Transfer failed: ' + err.message, 'error');
+    }
+}
+
+// ===== PLAYER MENU =====
+async function showPlayerMenu(squadId, playerId) {
+    if (!currentTeam) return;
+
+    const actions = [
+        { label: 'Set Captain', action: () => setCaptain(squadId) },
+        { label: 'Set Vice-Captain', action: () => setViceCaptain(squadId) },
+        { label: 'Bench Player', action: () => benchPlayer(squadId) },
+        { label: 'Start Player', action: () => startPlayer(squadId) },
+    ];
+
+    const overlay = document.getElementById('modal-overlay');
+    const content = document.getElementById('modal-content');
+
+    content.innerHTML = `
+        <div class="player-menu-modal">
+            ${actions.map(a => `<button class="btn btn-block" onclick="${a.action.name}(); closeModal();">${a.label}</button>`).join('')}
+            <button class="btn btn-outline btn-block" onclick="closeModal()">Close</button>
+        </div>`;
+
+    overlay.style.display = 'block';
+    content.style.display = 'block';
+}
+
+function closeModal() {
+    document.getElementById('modal-overlay').style.display = 'none';
+    document.getElementById('modal-content').style.display = 'none';
+}
+
+async function setCaptain(squadId) {
+    try {
+        const response = await apiFetch(`/users/${currentTeam.id}/captain/${squadId}`, {
+            method: 'POST',
+        });
+        if (response.ok) {
+            showToast('Captain set!', 'success');
+            renderMyTeam();
+        } else {
+            const err = await response.json();
+            showToast(err.detail || 'Failed to set captain', 'error');
+        }
+    } catch (err) {
+        showToast('Failed: ' + err.message, 'error');
+    }
+}
+
+async function setViceCaptain(squadId) {
+    try {
+        const response = await apiFetch(`/users/${currentTeam.id}/vice-captain/${squadId}`, {
+            method: 'POST',
+        });
+        if (response.ok) {
+            showToast('Vice-captain set!', 'success');
+            renderMyTeam();
+        } else {
+            const err = await response.json();
+            showToast(err.detail || 'Failed to set vice-captain', 'error');
+        }
+    } catch (err) {
+        showToast('Failed: ' + err.message, 'error');
+    }
+}
+
+async function benchPlayer(squadId) {
+    try {
+        const response = await apiFetch(`/users/${currentTeam.id}/squad/${squadId}/bench`, {
+            method: 'POST',
+        });
+        if (response.ok) {
+            showToast('Player benched!', 'success');
+            renderMyTeam();
+        } else {
+            const err = await response.json();
+            showToast(err.detail || 'Failed', 'error');
+        }
+    } catch (err) {
+        showToast('Failed: ' + err.message, 'error');
+    }
+}
+
+async function startPlayer(squadId) {
+    try {
+        const response = await apiFetch(`/users/${currentTeam.id}/squad/${squadId}/start`, {
+            method: 'POST',
+        });
+        if (response.ok) {
+            showToast('Player started!', 'success');
+            renderMyTeam();
+        } else {
+            const err = await response.json();
+            showToast(err.detail || 'Failed', 'error');
+        }
+    } catch (err) {
+        showToast('Failed: ' + err.message, 'error');
+    }
+}
+
+// ===== TOAST =====
+function showToast(message, type = 'info') {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.textContent = message;
+    container.appendChild(toast);
+
+    setTimeout(() => {
+        toast.classList.add('fade-out');
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
+}
+
+// ===== INIT =====
+document.addEventListener('DOMContentLoaded', () => {
+    updateNav();
+    loadHomePage();
+});

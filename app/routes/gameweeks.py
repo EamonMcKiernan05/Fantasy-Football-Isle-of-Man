@@ -3,11 +3,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 from typing import Optional
+import json
 
 from app.database import get_db
 from app.models import (
     Gameweek, Fixture, Player, SquadPlayer, FantasyTeam,
     FantasyTeamHistory, PlayerGameweekPoints, User, Season,
+    DreamTeam, DreamTeamPlayer,
 )
 from app.schemas import GameweekResponse, FixtureResponse
 from app.scoring import (
@@ -558,7 +560,7 @@ def calculate_bonus(gw_id: int, db: Session = Depends(get_db)):
         if len(fixture_players) < 3:
             continue
 
-        # Calculate BPS
+        # Calculate BPS with defensive contributions (FPL 2025/26)
         for pp in fixture_players:
             player = db.query(Player).filter(Player.id == pp.player_id).first()
             if not player:
@@ -571,6 +573,8 @@ def calculate_bonus(gw_id: int, db: Session = Depends(get_db)):
                 clean_sheet=pp.clean_sheet,
                 goals_conceded=pp.goals_conceded,
                 saves=pp.saves,
+                tackles=getattr(pp, 'defensive_contributions', 0) // 3,  # Approximate
+                interceptions=getattr(pp, 'defensive_contributions', 0) // 3,
                 yellow_card=pp.yellow_card,
                 red_card=pp.red_card,
                 own_goal=pp.own_goal,
@@ -578,7 +582,6 @@ def calculate_bonus(gw_id: int, db: Session = Depends(get_db)):
                 penalties_missed=pp.penalties_missed,
                 minutes_played=pp.minutes_played,
                 was_penalty_goal=pp.was_penalty_goal,
-                bonus_points=pp.bonus_points,
             )
 
         # Award bonus
@@ -622,4 +625,190 @@ def simulate_and_score(
     calculate_bonus(gw_id, db)
 
     # 4. Score
-    return score_gameweek(gw_id, db)
+    score_result = score_gameweek(gw_id, db)
+
+    # 5. Calculate Dream Team
+    calculate_dream_team(gw_id, db)
+
+    return score_result
+
+
+@router.post("/{gw_id}/dream-team")
+def calculate_dream_team_endpoint(gw_id: int, db: Session = Depends(get_db)):
+    """Calculate the Dream Team for a gameweek.
+
+    The Dream Team is the best 11 players by total points,
+    selected in a valid formation (1 GK, 3-5 DEF, 3-5 MID, 3 FWD).
+    """
+    return calculate_dream_team(gw_id, db)
+
+
+@router.get("/{gw_id}/dream-team")
+def get_dream_team(gw_id: int, db: Session = Depends(get_db)):
+    """Get the Dream Team for a gameweek."""
+    dream_team = db.query(DreamTeam).filter(
+        DreamTeam.gameweek_id == gw_id
+    ).first()
+
+    if not dream_team:
+        raise HTTPException(status_code=404, detail="Dream Team not yet calculated for this gameweek")
+
+    members = db.query(DreamTeamPlayer).filter(
+        DreamTeamPlayer.dream_team_id == dream_team.id
+    ).all()
+
+    return {
+        "dream_team": {
+            "id": dream_team.id,
+            "gameweek_id": dream_team.gameweek_id,
+            "season": dream_team.season,
+            "total_points": dream_team.total_points,
+            "members": [
+                {
+                    "player_id": m.player_id,
+                    "player_name": m.player.name if m.player else "Unknown",
+                    "team_name": m.player.team.name if m.player and m.player.team else "Unknown",
+                    "position": m.position,
+                    "points": m.points,
+                    "formation_position": m.formation_position,
+                }
+                for m in sorted(members, key=lambda x: x.formation_position)
+            ],
+        },
+    }
+
+
+def calculate_dream_team(gw_id: int, db: Session) -> dict:
+    """Calculate the Dream Team for a gameweek.
+
+    FPL Dream Team rules:
+    - Best 11 players by total points
+    - Formation: 1 GK + 3-5 DEF + 3-5 MID + at least 1 FWD
+    - Must have valid formation (GK + 10 outfield = 11)
+    - Ties broken by BPS, then ICT index
+    """
+    gw = db.query(Gameweek).filter(Gameweek.id == gw_id).first()
+    if not gw:
+        raise HTTPException(status_code=404, detail="Gameweek not found")
+
+    # Check if Dream Team already exists
+    existing = db.query(DreamTeam).filter(DreamTeam.gameweek_id == gw_id).first()
+    if existing:
+        return {"status": "already_calculated", "dream_team_id": existing.id}
+
+    # Get all players with points this gameweek
+    player_points = db.query(PlayerGameweekPoints).filter(
+        PlayerGameweekPoints.gameweek_id == gw_id,
+        PlayerGameweekPoints.did_play == True,
+    ).all()
+
+    # Get player details
+    player_ids = [pp.player_id for pp in player_points]
+    players = {p.id: p for p in db.query(Player).filter(Player.id.in_(player_ids)).all()}
+
+    # Group by position
+    gk_players = []
+    def_players = []
+    mid_players = []
+    fwd_players = []
+
+    for pp in player_points:
+        player = players.get(pp.player_id)
+        if not player or not player.is_active:
+            continue
+
+        entry = {
+            "player_id": pp.player_id,
+            "player": player,
+            "points": pp.total_points,
+            "bps": pp.bps_score,
+            "ict": (pp.influence_gw + pp.creativity_gw + pp.threat_gw) / 10,
+        }
+
+        if player.position == "GK":
+            gk_players.append(entry)
+        elif player.position == "DEF":
+            def_players.append(entry)
+        elif player.position == "MID":
+            mid_players.append(entry)
+        elif player.position == "FWD":
+            fwd_players.append(entry)
+
+    # Sort each position by points desc, then BPS, then ICT
+    for lst in [gk_players, def_players, mid_players, fwd_players]:
+        lst.sort(key=lambda x: (x["points"], x["bps"], x["ict"]), reverse=True)
+
+    # Select best 11 in valid formation
+    # Strategy: Try different DEF/MID splits to maximize total points
+    best_dream_team = None
+    best_total = -1
+
+    # Must have at least 1 FWD
+    if not fwd_players:
+        return {"status": "error", "message": "No forwards available for Dream Team"}
+
+    for num_def in range(3, 6):  # 3-5 DEF
+        num_mid = 10 - num_def  # Remaining outfield spots (must have at least 1 FWD)
+
+        # Calculate max forwards we can pick
+        max_fwd = num_mid
+        num_mid_actual = num_mid
+
+        # Try different FWD counts (at least 1, up to the remaining outfield spots)
+        for num_fwd in range(1, min(max_fwd + 1, 4)):  # At most 3 FWD for formation balance
+            num_mid_for_this = 10 - num_def - num_fwd
+            if num_mid_for_this < 1:
+                continue
+
+            # Check we have enough players
+            if (len(gk_players) < 1 or len(def_players) < num_def or
+                    len(mid_players) < num_mid_for_this or len(fwd_players) < num_fwd):
+                continue
+
+            # Select players
+            selected = []
+            selected.extend(gk_players[:1])
+            selected.extend(def_players[:num_def])
+            selected.extend(mid_players[:num_mid_for_this])
+            selected.extend(fwd_players[:num_fwd])
+
+            total = sum(p["points"] for p in selected)
+            if total > best_total:
+                best_total = total
+                best_dream_team = selected
+
+    if not best_dream_team:
+        return {"status": "error", "message": "Could not form valid Dream Team"}
+
+    # Create Dream Team record
+    dream_team = DreamTeam(
+        gameweek_id=gw_id,
+        season=gw.season,
+        total_points=best_total,
+    )
+    db.add(dream_team)
+    db.flush()
+
+    # Create Dream Team members
+    formation_positions = [1] + list(range(2, 7)) + list(range(7, 12))  # GK + 10 outfield
+    for i, entry in enumerate(best_dream_team):
+        member = DreamTeamPlayer(
+            dream_team_id=dream_team.id,
+            player_id=entry["player_id"],
+            position=entry["player"].position,
+            points=entry["points"],
+            formation_position=formation_positions[i] if i < len(formation_positions) else i + 1,
+        )
+        db.add(member)
+
+        # Mark player as in dream team
+        entry["player"].in_dreamteam = True
+
+    db.commit()
+
+    return {
+        "status": "calculated",
+        "dream_team_id": dream_team.id,
+        "total_points": best_total,
+        "players_selected": len(best_dream_team),
+    }

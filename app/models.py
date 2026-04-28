@@ -377,6 +377,10 @@ class PlayerGameweekPoints(Base):
     bonus_points = Column(Integer, default=0)
     was_penalty_goal = Column(Boolean, default=False)
 
+    # FPL 2025/26: Defensive contributions (NEW)
+    # Used for defensive contribution points (DEF: 10 = +2, MID/FWD: 12 = +2)
+    defensive_contributions = Column(Integer, default=0)  # clearances + blocks + tackles + interceptions (+ ball recoveries for MID/FWD)
+
     # Scoring
     base_points = Column(Integer, default=0)
     total_points = Column(Integer, default=0)
@@ -622,6 +626,14 @@ class GameweekStats(Base):
     red_cards = Column(Integer, default=0)
     penalty_missed = Column(Boolean, default=False)
     own_goals = Column(Integer, default=0)
+    # Defensive contributions (FPL 2025/26)
+    defensive_contributions = Column(Integer, default=0)
+    # Clearances, blocks, tackles, interceptions for defensive contrib calculation
+    clearances = Column(Integer, default=0)
+    blocks = Column(Integer, default=0)
+    tackles = Column(Integer, default=0)
+    interceptions = Column(Integer, default=0)
+    # ICT
     influence = Column(Float, default=0.0)
     creativity = Column(Float, default=0.0)
     threat = Column(Float, default=0.0)
@@ -629,3 +641,37 @@ class GameweekStats(Base):
 
     player = relationship("Player")
     gameweek = relationship("Gameweek", overlaps="player_points")
+
+
+class DreamTeam(Base):
+    """FPL Dream Team for a gameweek.
+
+    The Dream Team is the best-performing formation of 11 players
+    across all fixtures in a gameweek, selected by total points.
+    """
+    __tablename__ = "dream_teams"
+
+    id = Column(Integer, primary_key=True, index=True)
+    gameweek_id = Column(Integer, ForeignKey("gameweeks.id"), nullable=False, unique=True)
+    gameweek = relationship("Gameweek")
+    season = Column(String(20), nullable=False)
+    total_points = Column(Integer, default=0)  # Combined points of all 11 players
+    selected_at = Column(DateTime, default=datetime.utcnow)
+
+    members = relationship("DreamTeamPlayer", back_populates="dream_team")
+
+
+class DreamTeamPlayer(Base):
+    """A player selected for the Dream Team."""
+    __tablename__ = "dream_team_players"
+
+    id = Column(Integer, primary_key=True, index=True)
+    dream_team_id = Column(Integer, ForeignKey("dream_teams.id"), nullable=False)
+    dream_team = relationship("DreamTeam", back_populates="members")
+
+    player_id = Column(Integer, ForeignKey("players.id"), nullable=False)
+    player = relationship("Player")
+
+    position = Column(String(3), nullable=False)  # GK, DEF, MID, FWD
+    points = Column(Integer, default=0)
+    formation_position = Column(Integer, nullable=False)  # 1-11 for formation display
