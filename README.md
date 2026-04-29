@@ -1,35 +1,17 @@
 # Fantasy Football Isle of Man
 
-FPL-style fantasy football for the **Isle of Man Senior Men's Leagues**.
+FPL-style fantasy football for the **Canada Life Premier League**.
 
 Built with FastAPI, SQLite, and vanilla JavaScript. Data sourced from the [FullTime API](https://github.com/jwhughes-work/FullTimeAPI) (unofficial FA FullTime scraper).
 
 ## Features
 
-- **4 Divisions**: Canada Life Premier League, Division 2, Combination 1, Combination 2
 - **FPL-Style Scoring**: Team-level points based on match results, goals, and clean sheets
 - **Weekly Deadlines**: Team deadline every Saturday at 11:00 AM
-- **Bonus Points**: FPL-style bonus points calculated at 9:00 PM Saturday
 - **Captain System**: Choose a captain each week for 2x points
 - **Transfers**: Swap teams in and out of your squad
 - **Live Data**: Auto-syncs fixtures, results, and league tables from FullTime API
 
-## Scoring Rules
-
-Adapted from FPL rules to work at team level (no individual player stats available for IOM leagues):
-
-| Action | Points |
-|--------|--------|
-| **Participation** (team played) | +2 |
-| **Win** | +6 |
-| **Draw** | +2 |
-| **Loss** | 0 |
-| **Goal Scored** | +2 |
-| **Clean Sheet** | +4 |
-| **Goal Conceded** | -1 (max -3) |
-| **Goal Difference Bonus** (5+) | +1 |
-| **Captain** | 2x points |
-| **Bonus Points** (top 3) | 3, 2, 1 |
 
 ## Setup
 
