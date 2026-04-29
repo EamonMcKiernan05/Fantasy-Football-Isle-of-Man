@@ -153,7 +153,7 @@ def main():
         elif gpg > 0.15:
             player.position = "DEF"
         else:
-            player.position = "GK"
+            player.position = "MID"  # Uncertain - user will set manually
     
     db.commit()
     print(f"Created {db.query(Player).count()} players")
