@@ -6,7 +6,7 @@ from typing import List, Optional
 from datetime import datetime, date, timedelta
 
 from app.database import get_db
-from app.models import Player, Team, Division, Gameweek, Fixture, PlayerGameweekPoints
+from app.models import Player, Team, Division, Gameweek, Fixture, PlayerGameweekPoints, SquadPlayer, FantasyTeam
 from app.schemas import PlayerResponse, PlayerDetailResponse, PlayerHistoryEntry
 from app import api_client
 
@@ -110,6 +110,128 @@ def get_player(player_id: int, db: Session = Depends(get_db)):
         team_name=team.name if team else "",
         division=team.division.name if team and team.division else "",
     )
+
+
+@router.get("/{player_id}/detail")
+def get_player_detail(player_id: int, db: Session = Depends(get_db)):
+    """Get enhanced player detail with form guide, GW history, and upcoming fixtures."""
+    player = db.query(Player).filter(Player.id == player_id).first()
+    if not player:
+        raise HTTPException(status_code=404, detail="Player not found")
+
+    team = player.team
+
+    # Form guide (last 5 GWs)
+    form_gws = (
+        db.query(PlayerGameweekPoints)
+        .filter(PlayerGameweekPoints.player_id == player_id)
+        .order_by(PlayerGameweekPoints.gameweek_id.desc())
+        .limit(5)
+        .all()
+    )
+    form = []
+    for pgp in form_gws:
+        gw = db.query(Gameweek).filter(Gameweek.id == pgp.gameweek_id).first()
+        form.append({
+            "gameweek": gw.number if gw else 0,
+            "points": pgp.total_points,
+            "goals": pgp.goals_scored,
+            "assists": pgp.assists,
+        })
+
+    # GW-by-GW history
+    all_points = (
+        db.query(PlayerGameweekPoints)
+        .filter(PlayerGameweekPoints.player_id == player_id)
+        .order_by(PlayerGameweekPoints.gameweek_id.asc())
+        .all()
+    )
+    gw_history = []
+    for pgp in all_points:
+        gw = db.query(Gameweek).filter(Gameweek.id == pgp.gameweek_id).first()
+        gw_history.append({
+            "gameweek": gw.number if gw else 0,
+            "points": pgp.total_points,
+            "opponent": pgp.opponent_team or "",
+            "was_home": pgp.was_home,
+            "goals": pgp.goals_scored,
+            "assists": pgp.assists,
+            "bonus": pgp.bonus_points,
+            "minutes": pgp.minutes_played,
+        })
+
+    # Upcoming fixtures (next 5)
+    upcoming = (
+        db.query(Fixture)
+        .filter(
+            (Fixture.home_team_id == team.id) | (Fixture.away_team_id == team.id),
+            Fixture.played == False,
+        )
+        .order_by(Fixture.date.asc())
+        .limit(5)
+        .all()
+    )
+    fixtures = []
+    for fix in upcoming:
+        gw = db.query(Gameweek).filter(Gameweek.id == fix.gameweek_id).first()
+        opponent = fix.away_team_name if fix.home_team_id == team.id else fix.home_team_name
+        difficulty = fix.home_difficulty if fix.home_team_id != team.id else fix.away_difficulty
+        fixtures.append({
+            "gameweek": gw.number if gw else 0,
+            "opponent": opponent,
+            "is_home": fix.home_team_id == team.id,
+            "difficulty": difficulty,
+            "date": fix.date.isoformat() if fix.date else None,
+        })
+
+    # Ownership stats
+    total_teams = db.query(FantasyTeam).count()
+    teams_owning = (
+        db.query(func.count(SquadPlayer.fantasy_team_id))
+        .filter(SquadPlayer.player_id == player_id)
+        .scalar()
+    ) or 0
+
+    return {
+        "player": {
+            "id": player.id,
+            "name": player.name,
+            "web_name": player.web_name,
+            "team_id": player.team_id,
+            "team_name": team.name if team else "",
+            "position": player.position,
+            "price": player.price,
+            "price_change": player.price_change,
+            "total_points": player.total_points_season,
+            "form": player.form,
+            "ict_index": player.ict_index,
+            "influence": player.influence,
+            "creativity": player.creativity,
+            "threat": player.threat,
+            "selected_by_percent": player.selected_by_percent,
+            "transfers_in": player.transfers_in,
+            "transfers_out": player.transfers_out,
+            "clean_sheets": player.clean_sheets,
+            "goals": player.goals,
+            "assists": player.assists,
+            "yellow_cards": player.yellow_cards,
+            "red_cards": player.red_cards,
+            "saves": player.saves,
+            "bonus": player.bonus,
+            "minutes_played": player.minutes_played,
+            "is_injured": player.is_injured,
+            "injury_status": player.injury_status,
+            "injury_return": player.injury_return.isoformat() if player.injury_return else None,
+        },
+        "form_guide": form,
+        "gw_history": gw_history,
+        "upcoming_fixtures": fixtures,
+        "ownership": {
+            "total_teams": total_teams,
+            "teams_owning": teams_owning,
+            "ownership_percent": round(teams_owning / total_teams * 100, 1) if total_teams > 0 else 0,
+        },
+   }
 
 
 @router.get("/{player_id}/history")

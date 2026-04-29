@@ -21,6 +21,7 @@
             <a href="#" onclick="navigate('dream-team')" class="nav-link" data-page="dream-team">Dream Team</a>
             <a href="#" onclick="navigate('leaderboard')" class="nav-link" data-page="leaderboard">Leaderboard</a>
             <a href="#" onclick="navigate('leagues')" class="nav-link" data-page="leagues">Leagues</a>
+            <a href="#" onclick="navigate('notifications')" class="nav-link" data-page="notifications">Notifications</a>
             <a href="#" onclick="navigate('help')" class="nav-link" data-page="help">Help</a>
         </div>
         <div class="nav-auth" id="nav-auth"></div>
@@ -235,6 +236,15 @@
                 <div id="dream-team-players" class="pitch-players"></div>
             </div>
             <div id="dream-team-total" class="dream-team-total"></div>
+        </div>
+
+        <!-- NOTIFICATIONS PAGE -->
+        <div id="page-notifications" class="page">
+            <div class="notifications-header">
+                <h2>Notifications</h2>
+                <button class="btn btn-secondary" onclick="markAllNotificationsRead()">Mark All Read</button>
+            </div>
+            <div id="notifications-container"></div>
         </div>
 
         <!-- HELP / SCORING GUIDE -->

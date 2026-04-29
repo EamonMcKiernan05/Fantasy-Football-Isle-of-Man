@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.database import get_db
 from app.models import Gameweek, PlayerGameweekPoints, Player, Fixture, FantasyTeamHistory
 
-router = APIRouter(tags=["gameweek-recap"])
+router = APIRouter(prefix="/api/gameweeks", tags=["gameweek-recap"])
 
 
 @router.get("/{gw_id}/recap")

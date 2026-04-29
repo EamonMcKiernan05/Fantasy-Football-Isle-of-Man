@@ -53,7 +53,9 @@ def list_gameweeks(
 
 @router.get("/current")
 def get_current_gameweek(db: Session = Depends(get_db)):
-    """Get the current open gameweek."""
+    """Get the current open gameweek with deadline countdown."""
+    from datetime import datetime, timezone
+
     gw = db.query(Gameweek).filter(
         Gameweek.closed == False,
     ).order_by(Gameweek.number.desc()).first()
@@ -64,6 +66,15 @@ def get_current_gameweek(db: Session = Depends(get_db)):
     fixtures = db.query(Fixture).filter(
         Fixture.gameweek_id == gw.id
     ).all()
+
+    now = datetime.now(timezone.utc)
+    deadline_dt = gw.deadline.replace(tzinfo=timezone.utc) if gw.deadline and gw.deadline.tzinfo is None else gw.deadline
+    deadline_remaining = (deadline_dt - now).total_seconds() if deadline_dt and now else None
+
+    # Calculate scoring progress
+    total_fixtures = len(fixtures)
+    completed_fixtures = sum(1 for f in fixtures if f.played)
+    scoring_progress = (completed_fixtures / total_fixtures * 100) if total_fixtures > 0 else 0
 
     return {
         "gameweek": {
@@ -87,8 +98,33 @@ def get_current_gameweek(db: Session = Depends(get_db)):
                 for f in fixtures
             ],
         },
-        "deadline_remaining": (gw.deadline - datetime.utcnow()).total_seconds() if gw.deadline else None,
+        "deadline_remaining_seconds": int(deadline_remaining) if deadline_remaining else None,
+        "deadline_remaining_formatted": _format_deadline(int(deadline_remaining)) if deadline_remaining else None,
+        "scoring_progress": {
+            "total_fixtures": total_fixtures,
+            "completed_fixtures": completed_fixtures,
+            "percentage": round(scoring_progress, 1),
+        },
     }
+
+
+def _format_deadline(seconds: int) -> str:
+    """Format deadline seconds as readable string."""
+    if seconds <= 0:
+        return "Deadline passed"
+
+    days = seconds // 86400
+    hours = (seconds % 86400) // 3600
+    minutes = (seconds % 3600) // 60
+
+    parts = []
+    if days > 0:
+        parts.append(f"{days}d")
+    if hours > 0:
+        parts.append(f"{hours}h")
+    parts.append(f"{minutes}m")
+
+    return " ".join(parts)
 
 
 @router.get("/{gw_id}", response_model=GameweekResponse)

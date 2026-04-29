@@ -7,7 +7,7 @@ from typing import Optional, Annotated
 from app.database import get_db
 from app.models import (
     User, FantasyTeam, SquadPlayer, Player, Gameweek,
-    FantasyTeamHistory,
+    FantasyTeamHistory, Team,
 )
 from app.schemas import (
     UserCreate, UserResponse, FantasyTeamResponse, SquadPlayerResponse,
@@ -85,12 +85,15 @@ def get_fantasy_team(user_id: int, db: Session = Depends(get_db)):
         "name": ft.name,
         "total_points": ft.total_points,
         "overall_rank": ft.overall_rank,
+        "league_rank": ft.league_rank,
         "free_transfers": ft.free_transfers,
         "free_transfers_next_gw": ft.free_transfers_next_gw,
         "budget_remaining": ft.budget_remaining,
         "current_gw_transfers": ft.current_gw_transfers,
         "transfer_deadline_exceeded": ft.transfer_deadline_exceeded,
         "season": ft.season,
+        "supported_club_id": ft.supported_club_id,
+        "supported_club_name": ft.supported_club.name if ft.supported_club else None,
         "chip_status": get_chip_status(ft, current_gw.number if current_gw else 1),
         "squad": [
             {
@@ -432,4 +435,74 @@ def get_team_history(user_id: int, db: Session = Depends(get_db)):
         "team_name": ft.name,
         "history": entries,
         "total_gameweeks": len(entries),
+    }
+
+
+@router.put("/{user_id}/team/update")
+def update_team_details(
+    user_id: int,
+    team_name: str = None,
+    supported_club_id: int = None,
+    db: Session = Depends(get_db),
+):
+    """Update fantasy team details.
+
+    FPL-style entry-update: change team name and supported club.
+    """
+    ft = db.query(FantasyTeam).filter(FantasyTeam.user_id == user_id).first()
+    if not ft:
+        raise HTTPException(status_code=404, detail="Fantasy team not found")
+
+    if team_name:
+        ft.name = team_name
+
+    if supported_club_id is not None:
+        club = db.query(Team).filter(Team.id == supported_club_id).first()
+        if not club:
+            raise HTTPException(status_code=404, detail="Club not found")
+        ft.supported_club_id = supported_club_id
+
+    db.commit()
+    db.refresh(ft)
+
+    return {
+        "id": ft.id,
+        "name": ft.name,
+        "supported_club_id": ft.supported_club_id,
+        "supported_club_name": ft.supported_club.name if ft.supported_club else None,
+        "message": "Team details updated",
+    }
+
+
+@router.get("/{user_id}/team/supported-club-leaderboard")
+def get_club_leaderboard(user_id: int, db: Session = Depends(get_db)):
+    """Get leaderboard for managers who support the same club."""
+    ft = db.query(FantasyTeam).filter(FantasyTeam.user_id == user_id).first()
+    if not ft or not ft.supported_club_id:
+        raise HTTPException(status_code=400, detail="No supported club set")
+
+    club_teams = (
+        db.query(FantasyTeam)
+        .filter(FantasyTeam.supported_club_id == ft.supported_club_id)
+        .order_by(FantasyTeam.total_points.desc())
+        .all()
+    )
+
+    leaderboard = []
+    for rank, team in enumerate(club_teams, 1):
+        leaderboard.append({
+            "rank": rank,
+            "team_id": team.id,
+            "team_name": team.name,
+            "username": team.user.username,
+            "total_points": team.total_points,
+        })
+
+    my_entry = next((e for e in leaderboard if e["team_id"] == ft.id), None)
+
+    return {
+        "club_name": ft.supported_club.name if ft.supported_club else "Unknown",
+        "my_rank": my_entry["rank"] if my_entry else None,
+        "total_members": len(club_teams),
+        "leaderboard": leaderboard[:20],
     }

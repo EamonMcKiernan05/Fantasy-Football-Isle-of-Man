@@ -13,6 +13,7 @@ from app.routes import (
     players, teams, users, gameweeks, leaderboard, transfers,
     mini_leagues, h2h, prices, gameweek_recap, transfers_tracking,
     fixtures, team_value, gameweek_history, captain_hints, admin,
+    notifications, h2h_bracket,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -61,14 +62,16 @@ app.include_router(leaderboard.router)
 app.include_router(transfers.router)
 app.include_router(mini_leagues.router)
 app.include_router(h2h.router)
-app.include_router(prices.router, prefix="/api/prices", tags=["prices"])
-app.include_router(gameweek_recap.router, prefix="/api/gameweeks", tags=["gameweek-recap"])
-app.include_router(transfers_tracking.router, prefix="/api/transfers", tags=["transfers-tracking"])
-app.include_router(fixtures.router, prefix="/api/fixtures", tags=["fixtures"])
-app.include_router(team_value.router, prefix="/api/team-value", tags=["team-value"])
-app.include_router(gameweek_history.router, prefix="/api/gameweek-history", tags=["gameweek-history"])
-app.include_router(captain_hints.router, prefix="/api/captain-hints", tags=["captain-hints"])
-app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
+app.include_router(prices.router)
+app.include_router(gameweek_recap.router)
+app.include_router(transfers_tracking.router)
+app.include_router(fixtures.router)
+app.include_router(team_value.router)
+app.include_router(gameweek_history.router)
+app.include_router(captain_hints.router)
+app.include_router(admin.router)
+app.include_router(notifications.router)
+app.include_router(h2h_bracket.router)
 
 
 @app.get("/api/dream-team/{gw_id}")

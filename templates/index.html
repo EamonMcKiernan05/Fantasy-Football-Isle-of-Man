@@ -20,10 +20,13 @@
             <a href="#" class="nav-link" data-page="transfers">Transfers</a>
             <a href="#" class="nav-link" data-page="players">Players</a>
             <a href="#" class="nav-link" data-page="gameweeks">Gameweeks</a>
+            <a href="#" class="nav-link" data-page="recap">GW Recap</a>
             <a href="#" class="nav-link" data-page="dream-team">Dream Team</a>
             <a href="#" class="nav-link" data-page="leaderboard">Leaderboard</a>
+            <a href="#" class="nav-link" data-page="h2h">H2H</a>
             <a href="#" class="nav-link" data-page="leagues">Leagues</a>
             <a href="#" class="nav-link" data-page="history">History</a>
+            <a href="#" class="nav-link" data-page="notifications">Notifications</a>
             <a href="#" class="nav-link" data-page="help">Help</a>
         </div>
         <div class="nav-auth" id="nav-auth">
@@ -43,6 +46,8 @@
         <div id="page-home" class="page">
             <div class="gw-banner" id="gw-banner">
                 <p>Loading current gameweek...</p>
+                <div id="deadline-countdown" class="deadline-countdown"></div>
+                <div id="gw-scoring-progress" class="gw-scoring-progress"></div>
             </div>
 
             <div class="hero">
@@ -142,11 +147,15 @@
         <!-- My Team -->
         <div id="page-my-team" class="page">
             <div class="team-header">
-                <h2 id="team-name">My Team</h2>
+                <div>
+                    <h2 id="team-name">My Team</h2>
+                    <div id="rank-display" class="rank-display"></div>
+                </div>
                 <div class="team-info">
                     <span id="team-points" class="team-stat">0 pts</span>
                     <span id="team-budget" class="team-stat">£100.0m</span>
                     <span id="team-transfers" class="team-stat">1 transfer</span>
+                    <button class="btn btn-sm btn-secondary" onclick="showTeamDetails()">Edit</button>
                 </div>
             </div>
 
@@ -407,6 +416,39 @@
 
     <!-- Toast Container -->
     <div id="toast-container" class="toast-container"></div>
+
+    <!-- Modal Overlay -->
+    <div id="modal-overlay" class="modal-overlay" onclick="closeModal()"></div>
+
+    <!-- Notifications Page -->
+    <div id="page-notifications" class="page">
+        <div class="notifications-header">
+            <h2>Notifications</h2>
+            <button class="btn btn-sm btn-secondary" onclick="markAllNotificationsRead()">Mark all as read</button>
+        </div>
+        <div id="notifications-container" class="notifications-container">
+            <p class="empty-state">Loading notifications...</p>
+        </div>
+    </div>
+
+    <!-- GW Recap Page -->
+    <div id="page-recap" class="page">
+        <h2>Gameweek Recap</h2>
+        <div id="scoring-progress"></div>
+        <div id="rank-display"></div>
+        <div id="recap-gw-select" class="recap-selector">
+            <select id="recap-gw-dropdown" onchange="loadGWRecap()"></select>
+        </div>
+        <div id="recap-container"></div>
+    </div>
+
+    <!-- H2H Page -->
+    <div id="page-h2h" class="page">
+        <h2>Head-to-Head</h2>
+        <div id="h2h-season-overview"></div>
+        <div id="h2h-bracket"></div>
+        <div id="h2h-current-matchup"></div>
+    </div>
 
     <script src="/static/js/app.js"></script>
     <script>

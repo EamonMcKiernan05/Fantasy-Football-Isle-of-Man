@@ -121,6 +121,9 @@ function navigate(page) {
         case 'dream-team': loadDreamTeamPage(); break;
         case 'leagues': loadLeagues(); break;
         case 'transfers': loadTransfersPage(); break;
+        case 'notifications': loadNotifications(); break;
+        case 'recap': loadGWRecap(); break;
+        case 'h2h': loadH2HPage(); break;
     }
 }
 
@@ -1290,6 +1293,425 @@ function showToast(message, type = 'info') {
         toast.classList.add('fade-out');
         setTimeout(() => toast.remove(), 300);
     }, 3000);
+}
+
+// ===== NOTIFICATIONS =====
+async function loadNotifications() {
+    if (!currentTeam) return;
+    const container = document.getElementById('notifications-container');
+    if (!container) return;
+
+    try {
+        const response = await apiFetch(`/notifications/team/${currentTeam.id}`);
+        if (!response.ok) return;
+        const data = await response.json();
+        renderNotifications(data);
+    } catch (err) {
+        console.error('Failed to load notifications:', err);
+    }
+}
+
+function renderNotifications(data) {
+    const container = document.getElementById('notifications-container');
+    if (!container) return;
+
+    if (!data.notifications || data.notifications.length === 0) {
+        container.innerHTML = '<p class="empty-state">No notifications yet.</p>';
+        return;
+    }
+
+    const iconMap = {
+        'gameweek_result': '\u{1F4CA}',
+        'chip_used': '\u{1F0CF}',
+        'price_change': '\u{1F4B0}',
+        'injury': '\u{1F4A5}',
+    };
+
+    container.innerHTML = data.notifications.map(n => `
+        <div class="notification-item ${n.read ? 'read' : 'unread'}">
+            <div class="notification-icon">${iconMap[n.type] || '\u{1F4E1}'}</div>
+            <div class="notification-content">
+                <div class="notification-title">${n.title}</div>
+                <div class="notification-message">${n.message}</div>
+                <div class="notification-time">${n.timestamp ? new Date(n.timestamp).toLocaleString() : ''}</div>
+            </div>
+        </div>
+    `).join('');
+}
+
+async function markAllNotificationsRead() {
+    if (!currentTeam) return;
+    try {
+        await apiFetch(`/notifications/team/${currentTeam.id}/mark-all-read`, { method: 'POST' });
+        showToast('All notifications marked as read', 'success');
+        loadNotifications();
+    } catch (err) {
+        console.error('Failed to mark read:', err);
+    }
+}
+
+// ===== PLAYER DETAIL MODAL =====
+async function showPlayerDetail(playerId) {
+    try {
+        const response = await apiFetch(`/players/${playerId}/detail`);
+        if (!response.ok) return;
+        const data = await response.json();
+        renderPlayerDetailModal(data);
+    } catch (err) {
+        console.error('Failed to load player detail:', err);
+    }
+}
+
+function renderPlayerDetailModal(data) {
+    const { player, form_guide, gw_history, upcoming_fixtures, ownership } = data;
+    const priceChangeClass = player.price_change > 0 ? 'price-up' : player.price_change < 0 ? 'price-down' : '';
+    const priceChangeText = player.price_change > 0 ? `+${player.price_change * 0.1}` : (player.price_change * 0.1).toFixed(1);
+
+    // Form guide display
+    const formDisplay = form_guide.map(f => {
+        const cls = f.points >= 10 ? 'form-high' : f.points >= 5 ? 'form-mid' : 'form-low';
+        return `<span class="form-badge ${cls}">${f.points}</span>`;
+    }).join(' ');
+
+    // Upcoming fixtures display
+    const fixturesDisplay = (upcoming_fixtures || []).map(f => {
+        const difficultyClass = f.difficulty <= 2 ? 'easy' : f.difficulty <= 3 ? 'medium' : 'hard';
+        const homeAway = f.is_home ? 'H' : 'A';
+        return `<span class="fixture-badge ${difficultyClass}">${homeAway} ${f.opponent} (GW${f.gameweek})</span>`;
+    }).join(' ');
+
+    const content = document.getElementById('modal-content');
+    content.style.display = 'block';
+    content.style.maxWidth = '600px';
+    content.innerHTML = `
+        <div class="player-detail-modal">
+            <div class="player-detail-header">
+                <div class="player-detail-info">
+                    <h2>${player.name}</h2>
+                    <div class="player-detail-meta">
+                        <span class="pos-badge ${player.position.toLowerCase()}">${player.position}</span>
+                        <span>${player.team_name}</span>
+                    </div>
+                    ${player.is_injured ? '<span class="injury-badge">INJURED - ' + (player.injury_status || '') + '</span>' : ''}
+                </div>
+                <div class="player-detail-price">
+                    <div class="price-main">£${player.price.toFixed(1)}m</div>
+                    <div class="price-change ${priceChangeClass}">${priceChangeText > 0 ? '+' : ''}${priceChangeText}m</div>
+                </div>
+            </div>
+
+            <div class="player-detail-stats">
+                <div class="stat-grid">
+                    <div class="stat-item"><div class="stat-label">Total Points</div><div class="stat-value">${player.total_points || 0}</div></div>
+                    <div class="stat-item"><div class="stat-label">Form</div><div class="stat-value">${player.form || '0.0'}</div></div>
+                    <div class="stat-item"><div class="stat-label">ICT Index</div><div class="stat-value">${player.ict_index || '0.0'}</div></div>
+                    <div class="stat-item"><div class="stat-label">Selected</div><div class="stat-value">${player.selected_by_percent?.toFixed(1) || 0}%</div></div>
+                    <div class="stat-item"><div class="stat-label">Goals</div><div class="stat-value">${player.goals || 0}</div></div>
+                    <div class="stat-item"><div class="stat-label">Assists</div><div class="stat-value">${player.assists || 0}</div></div>
+                    <div class="stat-item"><div class="stat-label">Clean Sheets</div><div class="stat-value">${player.clean_sheets || 0}</div></div>
+                    <div class="stat-item"><div class="stat-label">Bonus</div><div class="stat-value">${player.bonus || 0}</div></div>
+                </div>
+            </div>
+
+            ${formDisplay ? `<div class="player-detail-section"><h3>Form (Last 5 GWs)</h3><div class="form-guide">${formDisplay}</div></div>` : ''}
+            ${fixturesDisplay ? `<div class="player-detail-section"><h3>Upcoming Fixtures</h3><div class="fixtures-list">${fixturesDisplay}</div></div>` : ''}
+
+            ${gw_history && gw_history.length > 0 ? `
+                <div class="player-detail-section">
+                    <h3>Gameweek History</h3>
+                    <table class="history-table">
+                        <thead><tr><th>GW</th><th>Pts</th><th>A</th><th>B</th><th>Min</th></tr></thead>
+                        <tbody>
+                            ${gw_history.slice(-10).map(h => `<tr><td>${h.gameweek}</td><td>${h.points || 0}</td><td>${h.assists || 0}</td><td>${h.bonus || 0}</td><td>${h.minutes || 0}</td></tr>`).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            ` : ''}
+
+            <div class="player-detail-footer">
+                <button class="btn btn-secondary" onclick="closeModal()">Close</button>
+            </div>
+        </div>
+    `;
+    document.getElementById('modal-overlay').style.display = 'block';
+}
+
+// ===== TEAM DETAILS MODAL =====
+function showTeamDetails() {
+    if (!currentTeam) return;
+
+    // Fetch all teams for club selection dropdown
+    fetch(`${API_BASE}/teams/`).then(r => r.json()).then(teams => {
+        const content = document.getElementById('modal-content');
+        content.style.display = 'block';
+        content.style.maxWidth = '500px';
+        content.innerHTML = `
+            <div class="team-details-modal">
+                <h2>Team Details</h2>
+                <form onsubmit="updateTeamDetails(event, ${JSON.stringify(teams).replace(/"/g, '&quot;')})">
+                    <div class="form-group">
+                        <label>Team Name</label>
+                        <input type="text" id="team-details-name" value="${currentTeam.name || ''}" class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label>Supported Club</label>
+                        <select id="team-details-club" class="form-input">
+                            <option value="">-- Select Club --</option>
+                            ${teams.map(t => `<option value="${t.id}" ${currentTeam.supported_club_id === t.id ? 'selected' : ''}>${t.name}</option>`).join('')}
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-block">Save Changes</button>
+                </form>
+                <button class="btn btn-secondary btn-block" style="margin-top:10px" onclick="closeModal()">Cancel</button>
+            </div>
+        `;
+        document.getElementById('modal-overlay').style.display = 'block';
+    });
+}
+
+async function updateTeamDetails(e, teams) {
+    e.preventDefault();
+    const teamName = document.getElementById('team-details-name').value;
+    const clubId = document.getElementById('team-details-club').value;
+
+    try {
+        const params = new URLSearchParams();
+        if (teamName) params.append('team_name', teamName);
+        if (clubId) params.append('supported_club_id', clubId);
+
+        const response = await fetch(`${API_BASE}/users/${currentUser.id}/team/update?${params.toString()}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+        });
+
+        if (response.ok) {
+            showToast('Team details updated!', 'success');
+            closeModal();
+            loadTeam();
+        } else {
+            const err = await response.json();
+            showToast(err.detail || 'Failed to update', 'error');
+        }
+    } catch (err) {
+        showToast('Failed: ' + err.message, 'error');
+    }
+}
+
+// ===== CHIP CONFIRMATION MODAL =====
+function confirmChipActivation(chipType) {
+    const chipNames = {
+        wildcard: 'Wildcard',
+        free_hit: 'Free Hit',
+        bench_boost: 'Bench Boost',
+        triple_captain: 'Triple Captain',
+    };
+   const chipDescriptions = {
+        wildcard: 'Unlimited permanent transfers at no cost for this gameweek.',
+        free_hit: 'One-off squad change that reverts next gameweek. Cannot be cancelled once confirmed.',
+        bench_boost: 'All 15 players points count for this gameweek.',
+        triple_captain: 'Your captain points are tripled instead of doubled.',
+    };
+
+    const content = document.getElementById('modal-content');
+    content.style.display = 'block';
+    content.style.maxWidth = '450px';
+    content.innerHTML = `
+        <div class="chip-confirm-modal">
+            <h2>Activate ${chipNames[chipType]}</h2>
+            <p>${chipDescriptions[chipType]}</p>
+            ${chipType === 'free_hit' ? '<p class="warning-text">Warning: Free Hit cannot be cancelled once confirmed.</p>' : '<p class="info-text">You can cancel this chip before the gameweek deadline.</p>'}
+            <div style="display:flex;gap:10px;margin-top:20px">
+                <button class="btn btn-success btn-block" onclick="activateChip('${chipType}'); closeModal();">Activate</button>
+                <button class="btn btn-secondary btn-block" onclick="closeModal()">Cancel</button>
+            </div>
+        </div>
+    `;
+    document.getElementById('modal-overlay').style.display = 'block';
+}
+
+// ===== SCORING PROGRESS BAR =====
+function updateScoringProgress(data) {
+    const progressEl = document.getElementById('scoring-progress');
+    if (!progressEl) return;
+
+    if (!data || data.percentage === undefined) return;
+
+    progressEl.innerHTML = `
+        <div class="progress-bar-container">
+            <div class="progress-bar-header">
+                <span class="progress-label">Scoring Progress</span>
+                <span class="progress-value">${data.completed_fixtures}/${data.total_fixtures} fixtures (${data.percentage}%)</span>
+            </div>
+            <div class="progress-bar-track">
+                <div class="progress-bar-fill" style="width: ${data.percentage}%"></div>
+            </div>
+        </div>
+    `;
+}
+
+// ===== RANK DISPLAY =====
+function renderRankDisplay() {
+    if (!currentTeam) return;
+    const rankEl = document.getElementById('rank-display');
+    if (!rankEl) return;
+
+    rankEl.innerHTML = `
+        <div class="rank-item">
+            <span class="rank-label">Overall Rank</span>
+            <span class="rank-value">#${currentTeam.overall_rank || 'N/A'}</span>
+        </div>
+        ${currentTeam.supported_club_name ? `
+        <div class="rank-item">
+            <span class="rank-label">${currentTeam.supported_club_name} Rank</span>
+            <span class="rank-value" id="club-rank">Loading...</span>
+        </div>
+    ` : ''}
+    `;
+}
+
+// ===== MODAL =====
+function closeModal() {
+    const overlay = document.getElementById('modal-overlay');
+    if (overlay) overlay.style.display = 'none';
+}
+
+// ===== GW RECAP =====
+async function loadGWRecap() {
+    if (!currentTeam) return;
+    const container = document.getElementById('recap-container');
+    if (!container) return;
+    container.innerHTML = '<p class="empty-state">Loading gameweek recap...</p>';
+
+    try {
+        // Load gameweek dropdown
+        const dropdown = document.getElementById('recap-gw-dropdown');
+        if (dropdown) {
+            const gwResponse = await apiFetch('/gameweek-history/gameweeks');
+            if (gwResponse.ok) {
+                const gws = await gwResponse.json();
+                dropdown.innerHTML = gws.map(gw => `<option value="${gw.id}" ${gw.current ? 'selected' : ''}>Gameweek ${gw.number}</option>`).join('');
+            }
+        }
+
+        // Load recap for current gameweek
+        const recapResponse = await apiFetch(`/gameweek-history/${currentTeam.id}/current-gw-recap`);
+        if (!recapResponse.ok) { container.innerHTML = '<p class="empty-state">No recap available.</p>'; return; }
+
+        const data = await recapResponse.json();
+
+        // Update scoring progress
+        updateScoringProgress(data);
+        renderRankDisplay();
+
+        container.innerHTML = `
+            <div class="recap-header">
+                <h3>Gameweek ${data.gameweek_number} Recap</h3>
+                <div class="recap-total">
+                    <span class="recap-total-label">Total Points</span>
+                    <span class="recap-total-value">${data.total_points || 0}</span>
+                </div>
+            </div>
+            <div class="player-breakdown-grid">
+                ${(data.squad_recap || []).map(sp => {
+                    const posIcon = sp.position === 'GK' ? '🧤' : sp.position === 'DEF' ? '🛡️' : sp.position === 'MID' ? '⚡' : '⚽';
+                    const details = [];
+                    if (sp.goals) details.push(`${sp.goals}G`);
+                    if (sp.assists) details.push(`${sp.assists}A`);
+                    if (sp.clean_sheet) details.push('CS');
+                    if (sp.bonus) details.push(`+${sp.bonus}B`);
+                    if (sp.was_captain) details.push('C');
+                    return `
+                        <div class="player-breakdown-card">
+                            <div class="player-breakdown-avatar">${posIcon}</div>
+                            <div class="player-breakdown-info">
+                                <div class="player-breakdown-name">${sp.player?.name || 'Unknown'}</div>
+                                <div class="player-breakdown-team">${sp.player?.team?.name || ''} ${sp.was_autosub ? '(AUTOSUB)' : ''}</div>
+                                <div class="player-breakdown-details">${details.join(' ')}</div>
+                            </div>
+                            <div class="player-breakdown-points">${sp.points || 0}</div>
+                        </div>`;
+                }).join('')}
+            </div>
+        `;
+    } catch (err) {
+        console.error('Failed to load recap:', err);
+        container.innerHTML = '<p class="empty-state">Failed to load recap.</p>';
+    }
+}
+
+// ===== H2H PAGE =====
+async function loadH2HPage() {
+    if (!currentTeam) return;
+
+    try {
+        // Load H2H league info
+        const h2hResponse = await apiFetch(`/h2h/user/${currentTeam.id}`);
+        if (!h2hResponse.ok) {
+            const overview = document.getElementById('h2h-season-overview');
+            if (overview) overview.innerHTML = '<p class="empty-state">Not in an H2H league yet.</p>';
+            return;
+        }
+        const h2hData = await h2hResponse.json();
+
+        // Season overview
+        const overview = document.getElementById('h2h-season-overview');
+        if (overview) {
+            overview.innerHTML = `
+                <div class="h2h-overview">
+                    <div class="h2h-stat-card"><div class="h2h-stat-value">${h2hData.wins || 0}</div><div class="h2h-stat-label">Wins</div></div>
+                    <div class="h2h-stat-card"><div class="h2h-stat-value">${h2hData.draws || 0}</div><div class="h2h-stat-label">Draws</div></div>
+                    <div class="h2h-stat-card"><div class="h2h-stat-value">${h2hData.losses || 0}</div><div class="h2h-stat-label">Losses</div></div>
+                    <div class="h2h-stat-card"><div class="h2h-stat-value">${h2hData.h2h_points || 0}</div><div class="h2h-stat-label">H2H Points</div></div>
+                    <div class="h2h-stat-card"><div class="h2h-stat-value">${h2hData.round || 0}</div><div class="h2h-stat-label">Round</div></div>
+                </div>
+            `;
+        }
+
+        // Current matchup
+        const matchup = document.getElementById('h2h-current-matchup');
+        if (matchup && h2hData.current_opponent) {
+            matchup.innerHTML = `
+                <div class="h2h-matchup">
+                    <div class="h2h-team">
+                        <div class="h2h-team-name">${currentTeam.name}</div>
+                        <div class="h2h-team-records">${h2hData.wins}W-${h2hData.draws}D-${h2hData.losses}L</div>
+                        <div class="h2h-points">${h2hData.current_points || 0} pts</div>
+                    </div>
+                    <div class="h2h-vs">VS</div>
+                    <div class="h2h-team">
+                        <div class="h2h-team-name">${h2hData.current_opponent.name}</div>
+                        <div class="h2h-team-records">${h2hData.current_opponent.wins}W-${h2hData.current_opponent.draws}D-${h2hData.current_opponent.losses}L</div>
+                        <div class="h2h-points">${h2hData.current_opponent.current_points || 0} pts</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Bracket
+        const bracket = document.getElementById('h2h-bracket');
+        if (bracket && h2hData.bracket) {
+            let bracketHTML = '<div class="h2h-bracket">';
+            for (const [roundName, matches] of Object.entries(h2hData.bracket)) {
+                bracketHTML += `<div class="h2h-bracket-round"><h3>${roundName}</h3>`;
+                for (const m of matches) {
+                    const resultClass = m.result === 'win' ? 'win' : m.result === 'draw' ? 'draw' : 'loss';
+                    bracketHTML += `
+                        <div class="h2h-bracket-match">
+                            <div class="bracket-team ${m.team1_win ? 'winner' : m.team1_loss ? 'loser' : ''}">${m.team1_name}</div>
+                            <div class="bracket-score">${m.team1_points || '-'} - ${m.team2_points || '-'}</div>
+                            <div class="bracket-team ${m.team2_win ? 'winner' : m.team2_loss ? 'loser' : ''}">${m.team2_name}</div>
+                            ${m.result ? `<span class="bracket-result ${resultClass}">${m.result.toUpperCase()}</span>` : ''}
+                        </div>
+                    `;
+                }
+                bracketHTML += '</div>';
+            }
+            bracketHTML += '</div>';
+            bracket.innerHTML = bracketHTML;
+        }
+    } catch (err) {
+        console.error('Failed to load H2H:', err);
+    }
 }
 
 // ===== INIT =====

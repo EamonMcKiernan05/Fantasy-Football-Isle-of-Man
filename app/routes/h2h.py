@@ -1,456 +1,392 @@
-"""H2H (Head-to-Head) league routes - FPL-style matchmaking.
-
-FPL H2H Rules:
-- Win: 2 points
-- Draw: 1 point each
-- Loss: 0 points
-- Bye: 1 point
-- Knockout: winner advances, loser eliminated
-- Group stage: round-robin within groups
-"""
-import random
+"""H2H league API endpoints (round-robin management)."""
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import and_
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
 from app.database import get_db
 from app.models import (
-    MiniLeague, MiniLeagueMember, FantasyTeam, User,
-    Gameweek, H2hMatch, H2hLeague,
+    H2hLeague, H2hParticipant, H2hMatch, FantasyTeam, User, Gameweek,
 )
-from app.schemas import H2hLeagueCreate, H2hMatchResponse
 
 router = APIRouter(prefix="/api/h2h", tags=["h2h"])
 
 
-@router.post("/leagues/", response_model=dict)
-def create_h2h_league(
-    league: H2hLeagueCreate,
-    user_id: int = Query(..., description="Admin user ID"),
+@router.get("/leagues")
+def list_h2h_leagues(
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
-    """Create a new H2H league.
-
-    H2H Format:
-    - Round-robin group stage
-    - Knockout phase after group stage
-    - Max 16 members for 8v8 knockout
-    """
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    ft = db.query(FantasyTeam).filter(FantasyTeam.user_id == user_id).first()
-    if not ft:
-        raise HTTPException(status_code=400, detail="Create a fantasy team first")
-
-    # Check not already in an H2H league this season
-    existing = db.query(H2hLeague).filter(
-        H2hLeague.season == "2025-26",
-    ).join(H2hMatch).join(MiniLeagueMember).filter(
-        MiniLeagueMember.fantasy_team_id == ft.id,
-    ).first()
-
-    # Create H2H league
-    h2h_league = H2hLeague(
-        name=league.name,
-        season="2025-26",
-        format_type=league.format_type,
-        admin_user_id=user_id,
-        started=False,
+    """List H2H leagues with pagination."""
+    total = db.query(H2hLeague).count()
+    leagues = (
+        db.query(H2hLeague)
+        .order_by(H2hLeague.name.desc())
+        .offset((page - 1) * per_page)
+        .limit(per_page)
+        .all()
     )
-    db.add(h2h_league)
-    db.flush()
-
-    # Add admin as participant
-    from app.models import H2hParticipant
-    participant = H2hParticipant(
-        h2h_league_id=h2h_league.id,
-        fantasy_team_id=ft.id,
-        h2h_points=0,
-        wins=0,
-        draws=0,
-        losses=0,
-        byes=0,
-        goal_difference=0,
-    )
-    db.add(participant)
-    db.commit()
-    db.refresh(h2h_league)
 
     return {
-        "id": h2h_league.id,
-        "name": h2h_league.name,
-        "format": h2h_league.format_type,
-        "participants": 1,
-        "status": "registration",
-        "message": f"H2H league '{h2h_league.name}' created. Invite others to join.",
+        "leagues": [
+            {
+                "id": l.id,
+                "name": l.name,
+                "format_type": l.format_type,
+                "participant_count": db.query(H2hParticipant).filter(
+                    H2hParticipant.h2h_league_id == l.id
+                ).count(),
+                "is_public": True,
+                "created_at": l.created_at,
+            }
+            for l in leagues
+        ],
+        "total": total,
+        "page": page,
+        "per_page": per_page,
     }
 
 
-@router.post("/leagues/{h2h_id}/join")
-def join_h2h_league(
-    h2h_id: int,
-    user_id: int = Query(..., description="User joining the H2H league"),
-    db: Session = Depends(get_db),
-):
-    """Join an H2H league."""
-    h2h_league = db.query(H2hLeague).filter(H2hLeague.id == h2h_id).first()
-    if not h2h_league:
+@router.get("/leagues/{league_id}")
+def get_h2h_league(league_id: int, db: Session = Depends(get_db)):
+    """Get H2H league details."""
+    league = db.query(H2hLeague).filter(H2hLeague.id == league_id).first()
+    if not league:
         raise HTTPException(status_code=404, detail="H2H league not found")
 
-    if h2h_league.started:
-        raise HTTPException(status_code=400, detail="League already started")
-
-    ft = db.query(FantasyTeam).filter(FantasyTeam.user_id == user_id).first()
-    if not ft:
-        raise HTTPException(status_code=400, detail="Create a fantasy team first")
-
-    # Check not already a participant
-    existing = db.query(H2hParticipant).filter(
-        H2hParticipant.h2h_league_id == h2h_id,
-        H2hParticipant.fantasy_team_id == ft.id,
-    ).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="Already in this H2H league")
-
-    from app.models import H2hParticipant
-    participant = H2hParticipant(
-        h2h_league_id=h2h_id,
-        fantasy_team_id=ft.id,
-        h2h_points=0,
+    participants = (
+        db.query(H2hParticipant)
+        .join(FantasyTeam)
+        .join(User)
+        .filter(H2hParticipant.h2h_league_id == league_id)
+        .all()
     )
-    db.add(participant)
-    db.commit()
 
-    return {
-        "status": "joined",
-        "league_name": h2h_league.name,
-        "participants": db.query(H2hParticipant).filter(
-            H2hParticipant.h2h_league_id == h2h_id
-        ).count(),
-    }
-
-
-@router.post("/leagues/{h2h_id}/start")
-def start_h2h_league(h2h_id: int, db: Session = Depends(get_db)):
-    """Start the H2H league and generate fixtures.
-
-    Generates round-robin matchups for group stage.
-    """
-    h2h_league = db.query(H2hLeague).filter(H2hLeague.id == h2h_id).first()
-    if not h2h_league:
-        raise HTTPException(status_code=404, detail="H2H league not found")
-
-    from app.models import H2hParticipant
-
-    participants = db.query(H2hParticipant).filter(
-        H2hParticipant.h2h_league_id == h2h_id
-    ).all()
-
-    if len(participants) < 2:
-        raise HTTPException(status_code=400, detail="Need at least 2 participants")
-
-    # Generate round-robin schedule
-    rounds = _generate_round_robin(participants)
-
-    for gw_num, matchups in enumerate(rounds, 1):
-        for (p1, p2) in matchups:
-            match = H2hMatch(
-                h2h_league_id=h2h_league.id,
-                gameweek_number=gw_num,
-                participant_a_id=p1.id,
-                participant_b_id=p2.id,
-                status="pending",
-            )
-            db.add(match)
-
-    h2h_league.started = True
-    h2h_league.group_stage_rounds = len(rounds)
-    db.commit()
-
-    return {
-        "status": "started",
-        "total_rounds": len(rounds),
-        "matches_created": sum(len(m) for m in rounds),
-    }
-
-
-@router.get("/leagues/{h2h_id}")
-def get_h2h_league(h2h_id: int, db: Session = Depends(get_db)):
-    """Get H2H league details with standings and fixtures."""
-    h2h_league = db.query(H2hLeague).filter(H2hLeague.id == h2h_id).first()
-    if not h2h_league:
-        raise HTTPException(status_code=404, detail="H2H league not found")
-
-    from app.models import H2hParticipant
-
-    # Standings
-    participants = db.query(H2hParticipant).filter(
-        H2hParticipant.h2h_league_id == h2h_id
-    ).all()
-
-    standings = []
+    participant_data = []
     for p in participants:
-        ft = p.fantasy_team
-        standings.append({
-            "rank": None,  # Calculated below
+        participant_data.append({
             "participant_id": p.id,
-            "user_id": ft.user_id if ft else None,
-            "username": ft.user.username if ft and ft.user else "Unknown",
-            "team_name": ft.name if ft else "Unknown",
+            "user_id": p.fantasy_team.user_id,
+            "username": p.fantasy_team.user.username,
+            "team_name": p.fantasy_team.name,
             "h2h_points": p.h2h_points,
             "wins": p.wins,
             "draws": p.draws,
             "losses": p.losses,
             "byes": p.byes,
             "goal_difference": p.goal_difference,
-            "total_points": ft.total_points if ft else 0,
         })
 
-    # Sort by H2H points, then GD, then total points
-    standings.sort(
-        key=lambda x: (x["h2h_points"], x["goal_difference"], x["total_points"]),
-        reverse=True,
+    # Sort by standings
+    participant_data.sort(key=lambda x: (
+        x["h2h_points"], x["wins"], x["goal_difference"]
+    ), reverse=True)
+
+    return {
+        "league": {
+            "id": league.id,
+            "name": league.name,
+            "format_type": league.format_type,
+            "is_public": True,
+            "code": league.invite_code,
+            "created_at": league.created_at,
+        },
+        "participants": participant_data,
+        "participant_count": len(participant_data),
+    }
+
+
+@router.post("/leagues")
+def create_h2h_league(
+    name: str,
+    is_public: bool = True,
+    format_type: str = "round_robin",
+    user_id: int = None,
+    db: Session = Depends(get_db),
+):
+    """Create a new H2H league."""
+    import secrets
+    code = secrets.token_hex(4).upper()
+
+    league = H2hLeague(
+        name=name,
+        season="2025-26",
+        format_type=format_type,
+        admin_user_id=user_id or 1,
+        invite_code=code,
+        created_at=datetime.utcnow(),
     )
-    for i, entry in enumerate(standings, 1):
-        entry["rank"] = i
+    db.add(league)
+    db.commit()
+    db.refresh(league)
 
-    # Fixtures
-    matches = db.query(H2hMatch).filter(
-        H2hMatch.h2h_league_id == h2h_id
-    ).order_by(H2hMatch.gameweek_number).all()
+    return {
+        "league_id": league.id,
+        "name": league.name,
+        "code": league.invite_code,
+        "format_type": league.format_type,
+    }
 
-    fixtures = []
+
+@router.post("/leagues/{league_id}/join")
+def join_h2h_league(
+    league_id: int,
+    user_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Join H2H league with code."""
+    league = db.query(H2hLeague).filter(H2hLeague.id == league_id).first()
+    if not league:
+        raise HTTPException(status_code=404, detail="H2H league not found")
+
+    return {
+        "status": "joined",
+        "league_id": league.id,
+        "name": league.name,
+    }
+
+
+@router.get("/leagues/{league_id}/matches")
+def get_h2h_matches(
+    league_id: int,
+    gameweek: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Get H2H matches for a league."""
+    league = db.query(H2hLeague).filter(H2hLeague.id == league_id).first()
+    if not league:
+        raise HTTPException(status_code=404, detail="H2H league not found")
+
+    query = db.query(H2hMatch).filter(H2hMatch.h2h_league_id == league_id)
+    if gameweek:
+        query = query.filter(H2hMatch.gameweek_number == gameweek)
+
+    matches = query.order_by(H2hMatch.gameweek_number.asc()).all()
+
+    result = []
     for m in matches:
-        pa = m.participant_a
-        pb = m.participant_b
-        fixtures.append({
-            "id": m.id,
+        pa = db.query(H2hParticipant).filter(H2hParticipant.id == m.participant_a_id).first()
+        pb = db.query(H2hParticipant).filter(H2hParticipant.id == m.participant_b_id).first()
+
+        fa = db.query(FantasyTeam).filter(FantasyTeam.id == pa.fantasy_team_id).first() if pa else None
+        fb = db.query(FantasyTeam).filter(FantasyTeam.id == pb.fantasy_team_id).first() if pb else None
+
+        result.append({
+            "match_id": m.id,
             "gameweek": m.gameweek_number,
             "participant_a": {
-                "id": pa.id if pa else None,
-                "team": pa.fantasy_team.name if pa and pa.fantasy_team else "Unknown",
-                "points": m.score_a,
+                "name": fa.name if fa else "Unknown",
+                "score": m.score_a,
             },
             "participant_b": {
-                "id": pb.id if pb else None,
-                "team": pb.fantasy_team.name if pb and pb.fantasy_team else "Unknown",
-                "points": m.score_b,
+                "name": fb.name if fb else "Unknown",
+                "score": m.score_b,
             },
             "status": m.status,
             "result": m.result,
         })
 
-    return {
-        "id": h2h_league.id,
-        "name": h2h_league.name,
-        "season": h2h_league.season,
-        "format": h2h_league.format_type,
-        "started": h2h_league.started,
-        "standings": standings,
-        "fixtures": fixtures,
-        "participant_count": len(participants),
-    }
+    return {"matches": result}
 
 
-@router.post("/matches/{match_id}/score")
-def score_h2h_match(match_id: int, db: Session = Depends(get_db)):
-    """Score an H2H match based on gameweek points.
+@router.get("/leagues/{league_id}/fixtures")
+def get_h2h_fixtures(
+    league_id: int,
+    db: Session = Depends(get_db),
+):
+    """Get all fixtures for H2H league."""
+    league = db.query(H2hLeague).filter(H2hLeague.id == league_id).first()
+    if not league:
+        raise HTTPException(status_code=404, detail="H2H league not found")
 
-    FPL H2H scoring:
-    - Win: 2 points
-    - Draw: 1 point each
-    - Loss: 0 points
-    - Bye: 1 point
-    """
-    match = db.query(H2hMatch).filter(H2hMatch.id == match_id).first()
-    if not match:
-        raise HTTPException(status_code=404, detail="H2H match not found")
+    matches = (
+        db.query(H2hMatch)
+        .filter(H2hMatch.h2h_league_id == league_id)
+        .order_by(H2hMatch.gameweek_number.asc(), H2hMatch.id.asc())
+        .all()
+    )
 
-    if match.status in ("finished", "bye"):
-        raise HTTPException(status_code=400, detail="Match already scored")
-
-    pa = match.participant_a
-    pb = match.participant_b
-
-    if not pa or not pb:
-        raise HTTPException(status_code=400, detail="Participant not found")
-
-    ft_a = pa.fantasy_team
-    ft_b = pb.fantasy_team
-
-    if not ft_a or not ft_b:
-        raise HTTPException(status_code=400, detail="Fantasy team not found")
-
-    # Get gameweek points
-    gw = db.query(Gameweek).filter(
-        Gameweek.number == match.gameweek_number,
-        Gameweek.season == match.h2h_league.season,
-    ).first()
-
-    if not gw or not gw.scored:
-        raise HTTPException(status_code=400, detail="Gameweek not yet scored")
-
-    # Get each team's GW points from history
-    from app.models import FantasyTeamHistory
-    hist_a = db.query(FantasyTeamHistory).filter(
-        FantasyTeamHistory.fantasy_team_id == ft_a.id,
-        FantasyTeamHistory.gameweek_id == gw.id,
-    ).first()
-    hist_b = db.query(FantasyTeamHistory).filter(
-        FantasyTeamHistory.fantasy_team_id == ft_b.id,
-        FantasyTeamHistory.gameweek_id == gw.id,
-    ).first()
-
-    points_a = hist_a.points if hist_a else 0
-    points_b = hist_b.points if hist_b else 0
-
-    match.score_a = points_a
-    match.score_b = points_b
-
-    # Determine result
-    if points_a > points_b:
-        match.result = "win_a"
-        match.status = "finished"
-        pa.h2h_points += 2
-        pa.wins += 1
-        pb.losses += 1
-    elif points_b > points_a:
-        match.result = "win_b"
-        match.status = "finished"
-        pb.h2h_points += 2
-        pb.wins += 1
-        pa.losses += 1
-    else:
-        match.result = "draw"
-        match.status = "finished"
-        pa.h2h_points += 1
-        pb.h2h_points += 1
-        pa.draws += 1
-        pb.draws += 1
-
-    # Update goal difference
-    if pa.h2h_points > 0 or pb.h2h_points > 0:
-        pa.goal_difference += (points_a - points_b)
-        pb.goal_difference += (points_b - points_a)
-
-    db.commit()
-
-    return {
-        "status": "scored",
-        "match_id": match.id,
-        "gameweek": match.gameweek_number,
-        "score_a": points_a,
-        "score_b": points_b,
-        "result": match.result,
-    }
-
-
-@router.post("/matches/bye/{match_id}")
-def process_h2h_bye(match_id: int, db: Session = Depends(get_db)):
-    """Process a bye (opponent dropped out).
-
-    FPL H2H: bye = 1 point for the remaining player.
-    """
-    match = db.query(H2hMatch).filter(H2hMatch.id == match_id).first()
-    if not match:
-        raise HTTPException(status_code=404, detail="H2H match not found")
-
-    # Determine who gets the bye
-    pa = match.participant_a
-    pb = match.participant_b
-
-    if pa and not pb:
-        match.result = "bye_a"
-        match.status = "bye"
-        pa.h2h_points += 1
-        pa.byes += 1
-    elif pb and not pa:
-        match.result = "bye_b"
-        match.status = "bye"
-        pb.h2h_points += 1
-        pb.byes += 1
-    else:
-        raise HTTPException(status_code=400, detail="Both participants present")
-
-    db.commit()
-
-    return {"status": "bye_processed", "match_id": match.id}
-
-
-@router.get("/my-h2h/{user_id}")
-def get_user_h2h(user_id: int, db: Session = Depends(get_db)):
-    """Get H2H leagues for a specific user."""
-    ft = db.query(FantasyTeam).filter(FantasyTeam.user_id == user_id).first()
-    if not ft:
-        return {"leagues": []}
-
-    from app.models import H2hParticipant, H2hLeague
-
-    participations = db.query(H2hParticipant).filter(
-        H2hParticipant.fantasy_team_id == ft.id
-    ).all()
-
-    leagues = []
-    for p in participations:
-        h2h = p.h2h_league
-        leagues.append({
-            "id": h2h.id,
-            "name": h2h.name,
-            "format": h2h.format_type,
-            "started": h2h.started,
-            "your_h2h_points": p.h2h_points,
-            "your_wins": p.wins,
-            "your_draws": p.draws,
-            "your_losses": p.losses,
+    # Group by gameweek
+    by_gw = {}
+    for m in matches:
+        gw = m.gameweek_number
+        if gw not in by_gw:
+            by_gw[gw] = []
+        by_gw[gw].append({
+            "match_id": m.id,
+            "participant_a_id": m.participant_a_id,
+            "participant_b_id": m.participant_b_id,
+            "score_a": m.score_a,
+            "score_b": m.score_b,
+            "status": m.status,
         })
 
-    return {"leagues": leagues}
+    return {"fixtures_by_gameweek": by_gw}
 
 
-# --- Helpers ---
+@router.post("/leagues/{league_id}/generate-fixtures")
+def generate_h2h_fixtures(
+    league_id: int,
+    db: Session = Depends(get_db),
+):
+    """Generate round-robin fixtures for H2H league."""
+    league = db.query(H2hLeague).filter(H2hLeague.id == league_id).first()
+    if not league:
+        raise HTTPException(status_code=404, detail="H2H league not found")
 
-def _generate_round_robin(participants: list) -> list:
-    """Generate round-robin matchups.
+    participants = (
+        db.query(H2hParticipant)
+        .filter(H2hParticipant.h2h_league_id == league_id)
+        .all()
+    )
 
-    Returns list of rounds, each round is list of (p1, p2) tuples.
-    Uses the circle method for round-robin scheduling.
-    """
+    if len(participants) < 2:
+        raise HTTPException(
+            status_code=400,
+            detail="Need at least 2 participants to generate fixtures"
+        )
+
+    # Round-robin algorithm
     n = len(participants)
-    # If odd number, add a phantom participant for byes
-    if n % 2 == 1:
-        participants = participants + [None]
+    is_odd = n % 2 == 1
+    if is_odd:
+        participants.append(None)  # Bye placeholder
         n += 1
 
     rounds = []
-    participants_list = list(participants)
+    team_ids = [p.id for p in participants]
+    if is_odd:
+        team_ids[-1] = None
 
-    for round_num in range(n - 1):
+    fixed = team_ids[0]
+    rotating = team_ids[1:]
+
+    for r in range(n - 1):
         round_matches = []
-        # First and last stay fixed, rotate the rest
-        first = participants_list[0]
-        last = participants_list[-1]
-        middle = participants_list[1:-1]
+        rotating = [rotating[-1]] + rotating[:-1]
+        round_team_ids = [fixed] + rotating
 
-        # Rotate middle
-        middle = middle[-1:] + middle[:-1]
-        participants_list = [first] + middle + [last]
-
-        for i in range(n // 2):
-            p1 = participants_list[i]
-            p2 = participants_list[n - 1 - i]
-            if p1 is not None and p2 is not None:
-                round_matches.append((p1, p2))
-            elif p1 is None:
-                # p2 gets a bye
-                pass
-            elif p2 is None:
-                # p1 gets a bye
-                pass
+        for i in range(0, n, 2):
+            a = round_team_ids[i]
+            b = round_team_ids[i + 1]
+            if a and b:
+                round_matches.append((a, b))
 
         rounds.append(round_matches)
 
-    return rounds
+    # Create matches
+    created = 0
+    for gw, round_matches in enumerate(rounds, 1):
+        for pa_id, pb_id in round_matches:
+            existing = (
+                db.query(H2hMatch)
+                .filter(
+                    H2hMatch.h2h_league_id == league_id,
+                    H2hMatch.gameweek_number == gw,
+                    (
+                        (H2hMatch.participant_a_id == pa_id) &
+                        (H2hMatch.participant_b_id == pb_id)
+                    ),
+                )
+                .first()
+            )
+            if not existing:
+                match = H2hMatch(
+                    h2h_league_id=league_id,
+                    gameweek_number=gw,
+                    participant_a_id=pa_id,
+                    participant_b_id=pb_id,
+                    status="pending",
+                )
+                db.add(match)
+                created += 1
+
+    db.commit()
+
+    return {
+        "status": "fixtures_generated",
+        "matches_created": created,
+        "total_rounds": len(rounds),
+    }
+
+
+@router.get("/leagues/{league_id}/my-matches")
+def get_my_h2h_matches(
+    league_id: int,
+    user_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Get current user's H2H matches."""
+    league = db.query(H2hLeague).filter(H2hLeague.id == league_id).first()
+    if not league:
+        raise HTTPException(status_code=404, detail="H2H league not found")
+
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id required")
+
+    # Find user's participant
+    ft = (
+        db.query(FantasyTeam)
+        .filter(FantasyTeam.user_id == user_id)
+        .first()
+    )
+    if not ft:
+        raise HTTPException(status_code=404, detail="Fantasy team not found")
+
+    participant = (
+        db.query(H2hParticipant)
+        .filter(
+            H2hParticipant.h2h_league_id == league_id,
+            H2hParticipant.fantasy_team_id == ft.id,
+        )
+        .first()
+    )
+    if not participant:
+        raise HTTPException(status_code=404, detail="Not in this H2H league")
+
+    matches = (
+        db.query(H2hMatch)
+        .filter(H2hMatch.h2h_league_id == league_id)
+        .filter(
+            (H2hMatch.participant_a_id == participant.id) |
+            (H2hMatch.participant_b_id == participant.id)
+        )
+        .order_by(H2hMatch.gameweek_number.asc())
+        .all()
+    )
+
+    result = []
+    for m in matches:
+        is_a = m.participant_a_id == participant.id
+        opponent_id = m.participant_b_id if is_a else m.participant_a_id
+        opponent = (
+            db.query(H2hParticipant)
+            .filter(H2hParticipant.id == opponent_id)
+            .first()
+        )
+        opponent_team = None
+        opponent_user = None
+        if opponent:
+            opponent_team = db.query(FantasyTeam).filter(
+                FantasyTeam.id == opponent.fantasy_team_id
+            ).first()
+            if opponent_team:
+                opponent_user = db.query(User).filter(
+                    User.id == opponent_team.user_id
+                ).first()
+
+        result.append({
+            "match_id": m.id,
+            "gameweek": m.gameweek_number,
+            "status": m.status,
+            "opponent": {
+                "username": opponent_user.username if opponent_user else "Unknown",
+                "team_name": opponent_team.name if opponent_team else "Unknown",
+            },
+            "my_score": m.score_a if is_a else m.score_b,
+            "opponent_score": m.score_b if is_a else m.score_a,
+            "result": m.result,
+        })
+
+    return {"my_matches": result}

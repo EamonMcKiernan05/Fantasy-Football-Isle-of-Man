@@ -287,6 +287,10 @@ class FantasyTeam(Base):
     free_hit_backup = Column(Text, nullable=True)  # JSON backup of original squad
     free_hit_revert_gw = Column(Integer, nullable=True)  # GW number to revert to
 
+   # Supported club (FPL-style: user selects a club for club leaderboards)
+    supported_club_id = Column(Integer, ForeignKey("teams.id"), nullable=True)
+    supported_club = relationship("Team", foreign_keys=[supported_club_id])
+
     # Squad
     squad = relationship("SquadPlayer", back_populates="fantasy_team")
     history = relationship("FantasyTeamHistory", back_populates="fantasy_team")

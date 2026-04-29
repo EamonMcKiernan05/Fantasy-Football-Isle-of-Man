@@ -9,7 +9,7 @@ from app.database import get_db
 from app.models import Player, FantasyTeam, SquadPlayer, Gameweek, Chip, PlayerPriceHistory
 from app.schemas import PlayerPriceResponse, PriceChangeSummary
 
-router = APIRouter()
+router = APIRouter(prefix="/api/prices", tags=["prices"])
 
 
 @router.get("/price-changes", response_model=List[PlayerPriceResponse])

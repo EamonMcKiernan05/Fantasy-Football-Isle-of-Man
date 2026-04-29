@@ -6,7 +6,7 @@ from typing import Optional
 from app.database import get_db
 from app.models import Player, Gameweek, SquadPlayer
 
-router = APIRouter(tags=["transfers-tracking"])
+router = APIRouter(prefix="/api/transfers", tags=["transfers-tracking"])
 
 
 def _calculate_ownership(db, player):
