@@ -35,6 +35,7 @@ class PlayerResponse(BaseModel):
     assists: int = 0
     clean_sheets: int = 0
     total_points: int = 0
+    total_points_season: int = 0
     gw_points: Optional[int] = None
     selected_by_percent: float = 0.0
     form: float = 0.0
@@ -43,6 +44,7 @@ class PlayerResponse(BaseModel):
     injury_status: Optional[str] = None
     transfers_in: int = 0
     transfers_out: int = 0
+    team: Optional[Dict[str, Any]] = None
 
     class Config:
         from_attributes = True

@@ -43,14 +43,21 @@ def list_players(
     # Sort
     order_map = {
         "goals": Player.goals.desc(),
-        "points": Player.goals.desc(),  # Use goals as proxy
+        "points": Player.total_points_season.desc(),
+        "total_points": Player.total_points_season.desc(),
         "price": Player.price.desc(),
         "apps": Player.apps.desc(),
         "name": Player.name.asc(),
     }
-    query = query.order_by(order_map.get(order_by, Player.goals.desc()))
+    query = query.order_by(order_map.get(order_by, Player.price.desc()))
 
     players = query.limit(200).all()
+
+    # Build team lookup
+    team_map = {}
+    for p in players:
+        if p.team and p.team.id not in team_map:
+            team_map[p.team.id] = {"id": p.team.id, "name": p.team.name, "short_name": p.team.short_name}
 
     # Add current gameweek points
     current_gw = db.query(Gameweek).filter(
@@ -67,6 +74,7 @@ def list_players(
             ).first()
             gw_pts = pgp.total_points if pgp else None
 
+        team_data = team_map.get(p.team_id) or {}
         result.append(PlayerResponse(
             id=p.id,
             name=p.name,
@@ -77,8 +85,17 @@ def list_players(
             goals=p.goals,
             assists=p.assists,
             clean_sheets=p.clean_sheets,
-            total_points=p.goals * 4,  # Approximate total
+            total_points=p.total_points_season or 0,
+            total_points_season=p.total_points_season or 0,
             gw_points=gw_pts,
+            selected_by_percent=p.selected_by_percent or 0.0,
+            form=p.form or 0.0,
+            ict_index=p.ict_index or 0.0,
+            is_injured=p.is_injured or False,
+            injury_status=p.injury_status,
+            transfers_in=p.transfers_in or 0,
+            transfers_out=p.transfers_out or 0,
+            team=team_data,
         ))
 
     return result

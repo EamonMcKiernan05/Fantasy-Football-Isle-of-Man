@@ -1101,6 +1101,7 @@ function showJoinLeague() {
 async function loadTransfersPage() {
     if (!currentUser) { navigate('login'); return; }
     await loadTeam();
+    searchTransferPlayers();
 }
 
 async function searchTransferPlayers() {
