@@ -280,6 +280,14 @@ function renderPitch(squad) {
     const formation = document.getElementById('formation-select')?.value || '3-4-3';
     const [def, mid, fwd] = formation.split('-').map(Number);
 
+    // Sort starters by position: GK first, then DEF, MID, FWD
+    const posOrder = { 'GK': 0, 'DEF': 1, 'MID': 2, 'FWD': 3 };
+    starters.sort((a, b) => {
+        const pa = posOrder[a.player?.position || a.position] ?? 9;
+        const pb = posOrder[b.player?.position || b.position] ?? 9;
+        return pa - pb;
+    });
+
     // Calculate positions on pitch
     const positions = [];
     // GK
@@ -300,12 +308,13 @@ function renderPitch(squad) {
     let posIndex = 0;
     pitchPlayers.innerHTML = starters.map(sp => {
         const pos = positions[posIndex++] || { x: 50, y: 50 };
-        const posIcon = sp.position === 'GK' ? '🧤' : sp.position === 'DEF' ? '🛡️' : sp.position === 'MID' ? '⚡' : '⚽';
+        const playerPos = sp.player?.position || sp.position || 'DEF';
+        const posIcon = playerPos === 'GK' ? '🧤' : playerPos === 'DEF' ? '🛡️' : playerPos === 'MID' ? '⚡' : '⚽';
         return `
             <div class="pitch-player" style="left:${pos.x}%;top:${pos.y}%"
                  onclick="showPlayerMenu(${sp.id}, ${sp.player_id})"
                  data-squad-id="${sp.id}" data-player-id="${sp.player_id}">
-                <div class="player-card ${sp.position.toLowerCase()} ${sp.was_autosub ? 'autosub' : ''}">
+                <div class="player-card ${playerPos.toLowerCase()} ${sp.was_autosub ? 'autosub' : ''}">
                     ${sp.is_captain ? '<div class="captain-badge">C</div>' : ''}
                     ${sp.is_vice_captain ? '<div class="vice-captain-badge">VC</div>' : ''}
                     <div class="player-pos-icon">${posIcon}</div>
@@ -324,11 +333,12 @@ function renderBench(squad) {
     const bench = squad.filter(sp => !sp.is_starting).sort((a, b) => (a.bench_priority || 99) - (b.bench_priority || 99));
 
     benchGrid.innerHTML = bench.map(sp => {
-        const posIcon = sp.position === 'GK' ? '🧤' : sp.position === 'DEF' ? '🛡️' : sp.position === 'MID' ? '⚡' : '⚽';
+        const playerPos = sp.player?.position || sp.position || 'DEF';
+        const posIcon = playerPos === 'GK' ? '🧤' : playerPos === 'DEF' ? '🛡️' : playerPos === 'MID' ? '⚡' : '⚽';
         return `
             <div class="bench-player">
                 <div class="bench-priority">#${sp.bench_priority || '?'}</div>
-                <div class="player-card ${sp.position.toLowerCase()} bench-card">
+                <div class="player-card ${playerPos.toLowerCase()} bench-card">
                     <div class="player-pos-icon">${posIcon}</div>
                     <div class="player-name">${sp.player?.name || 'Unknown'}</div>
                     <div class="player-team">${sp.player?.team?.name || ''}</div>
@@ -1717,5 +1727,15 @@ async function loadH2HPage() {
 // ===== INIT =====
 document.addEventListener('DOMContentLoaded', () => {
     updateNav();
-    loadHomePage();
+    
+    // Check for stored token and load team if logged in
+    if (getToken()) {
+        loadTeam().then(() => {
+            if (currentTeam) {
+                navigate('my-team');
+            }
+        });
+    } else {
+        loadHomePage();
+    }
 });

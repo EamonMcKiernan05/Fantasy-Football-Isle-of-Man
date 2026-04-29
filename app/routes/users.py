@@ -1,5 +1,5 @@
 """User and Fantasy Team API routes."""
-from fastapi import APIRouter, Depends, HTTPException, Query, Form
+from fastapi import APIRouter, Depends, HTTPException, Query, Form, Header
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from typing import Optional, Annotated
@@ -21,6 +21,84 @@ from app.utils.passwords import hash_password, verify_password
 from app.utils.squad import create_default_squad
 
 router = APIRouter(prefix="/api/users", tags=["users"])
+
+
+@router.get("/me")
+def get_current_user(
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
+    """Get current user and their fantasy team (used by frontend).
+    
+    The token format is: bearer-{user_id}-{username}
+    """
+    # Parse token from Authorization header
+    token = authorization.replace("Bearer ", "") if authorization else None
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    # Token format: bearer-{user_id}-{username}
+    parts = token.split("-", 2)
+    if len(parts) < 3 or parts[0] != "bearer":
+        raise HTTPException(status_code=401, detail="Invalid token")
+    
+    user_id = int(parts[1])
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    ft = db.query(FantasyTeam).filter(FantasyTeam.user_id == user_id).first()
+    
+    team_data = None
+    if ft:
+        ft_dict = ft.__dict__.copy()
+        ft_dict.pop('_sa_instance_state', None)
+        team_data = ft_dict
+    
+    return {
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "created_at": user.created_at.isoformat() if user.created_at else None,
+        },
+        "team": team_data,
+    }
+
+
+@router.get("/{user_id}/squad")
+def get_squad(user_id: int, db: Session = Depends(get_db)):
+    """Get squad players for a user's fantasy team."""
+    ft = db.query(FantasyTeam).filter(FantasyTeam.user_id == user_id).first()
+    if not ft:
+        raise HTTPException(status_code=404, detail="Fantasy team not found")
+    
+    squad = db.query(SquadPlayer).filter(SquadPlayer.fantasy_team_id == ft.id).all()
+    
+    return [
+        {
+            "id": sp.id,
+            "player_id": sp.player_id,
+            "player": {
+                "id": sp.player.id,
+                "name": sp.player.name,
+                "position": sp.player.position,
+                "team_id": sp.player.team_id,
+                "price": sp.player.price,
+                "team": {"name": sp.player.team.name} if sp.player.team else None,
+            },
+            "position_slot": sp.position_slot,
+            "is_captain": sp.is_captain,
+            "is_vice_captain": sp.is_vice_captain,
+            "is_starting": sp.is_starting,
+            "total_points": sp.total_points,
+            "gw_points": sp.gw_points,
+            "was_autosub": sp.was_autosub,
+            "bench_priority": sp.bench_priority,
+            "purchase_price": sp.purchase_price,
+        }
+        for sp in squad
+    ]
 
 
 @router.post("/register", response_model=UserResponse)
@@ -50,7 +128,15 @@ def login(username: Annotated[str, Form()], password: Annotated[str, Form()], db
     if not user or not verify_password(password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    return user
+    return {
+        "access_token": f"bearer-{user.id}-{user.username}",
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "created_at": user.created_at.isoformat() if user.created_at else None,
+        }
+    }
 
 
 @router.get("/{user_id}", response_model=UserResponse)
