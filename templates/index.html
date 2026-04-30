@@ -52,7 +52,7 @@
 
             <div class="hero">
                 <h1>Fantasy Football Isle of Man</h1>
-                <p>Pick your team of 15 players from the Isle of Man leagues. Score points based on real match performance. Compete against other managers!</p>
+                <p>Pick your squad of 13 players from the Isle of Man leagues. Score points based on real match performance. Compete against other managers!</p>
                 <div class="hero-features">
                     <div class="feature-card">
                         <h3>🏆 Classic</h3>
@@ -73,12 +73,12 @@
                 <h2>How to Play</h2>
                 <div class="rules-grid">
                     <div class="rule-card">
-                        <h4>Squad of 15</h4>
-                        <p>2 GK, 5 DEF, 5 MID, 3 FWD within a £100m budget</p>
+                        <h4>Squad of 13</h4>
+                        <p>Pick 13 players within a £60m budget. No position restrictions.</p>
                     </div>
                     <div class="rule-card">
-                        <h4>Starting XI</h4>
-                        <p>1 GK, 3-5 DEF, 1-5 MID, 1-3 FWD in any formation</p>
+                        <h4>Starting 10</h4>
+                        <p>Select your 10 best players each gameweek. 3 subs on the bench.</p>
                     </div>
                     <div class="rule-card">
                         <h4>Captain</h4>
@@ -86,7 +86,7 @@
                     </div>
                     <div class="rule-card">
                         <h4>Transfers</h4>
-                        <p>1 free per gameweek. Rollover max 4. Extra = -4pts</p>
+                        <p>1 free transfer per gameweek. Rollover max 4. Extra = -4pts</p>
                     </div>
                     <div class="rule-card">
                         <h4>Chips</h4>
@@ -153,7 +153,7 @@
                 </div>
                 <div class="team-info">
                     <span id="team-points" class="team-stat">0 pts</span>
-                    <span id="team-budget" class="team-stat">£100.0m</span>
+                    <span id="team-budget" class="team-stat">£60.0m</span>
                     <span id="team-transfers" class="team-stat">1 transfer</span>
                     <button class="btn btn-sm btn-secondary" onclick="showTeamDetails()">Edit</button>
                 </div>
@@ -161,21 +161,6 @@
 
             <!-- Team Stats -->
             <div class="team-stats" id="team-stats"></div>
-
-            <!-- Formation Selector -->
-            <div class="formation-selector">
-                <label>Formation:</label>
-                <select id="formation-select" onchange="changeFormation()">
-                    <option value="3-4-3">3-4-3</option>
-                    <option value="3-5-2">3-5-2</option>
-                    <option value="4-3-3" selected>4-3-3</option>
-                    <option value="4-4-2">4-4-2</option>
-                    <option value="4-5-1">4-5-1</option>
-                    <option value="5-3-2">5-3-2</option>
-                    <option value="5-4-1">5-4-1</option>
-                </select>
-                <span style="font-size:0.75rem;color:var(--text-muted);margin-left:0.5rem;">Click a player to set as Captain</span>
-            </div>
 
             <!-- Pitch -->
             <div class="pitch" id="pitch">
@@ -200,7 +185,7 @@
             <h2>Transfers</h2>
             <div class="transfer-header">
                 <span id="transfer-free" class="transfer-stat">1 free transfer</span>
-                <span id="transfer-budget" class="transfer-stat">£100.0m budget</span>
+                <span id="transfer-budget" class="transfer-stat">£60.0m budget</span>
                 <span id="wildcard-status" class="transfer-stat">Wildcard: Available</span>
                 <span id="active-chip-display" style="display:none;color:var(--purple);font-weight:bold;"></span>
             </div>
@@ -215,13 +200,6 @@
             <!-- Search -->
             <div class="transfer-search">
                 <input type="text" id="transfer-search-input" placeholder="Search players..." oninput="searchTransferPlayers()">
-                <select id="transfer-position-filter" onchange="searchTransferPlayers()">
-                    <option value="">All Positions</option>
-                    <option value="GK">Goalkeepers</option>
-                    <option value="DEF">Defenders</option>
-                    <option value="MID">Midfielders</option>
-                    <option value="FWD">Forwards</option>
-                </select>
             </div>
 
             <!-- Results -->
@@ -233,13 +211,6 @@
             <h2>Player List</h2>
             <div class="player-search">
                 <input type="text" id="player-search" placeholder="Search players..." oninput="loadPlayers()">
-                <select id="player-position" onchange="loadPlayers()">
-                    <option value="">All Positions</option>
-                    <option value="GK">Goalkeepers</option>
-                    <option value="DEF">Defenders</option>
-                    <option value="MID">Midfielders</option>
-                    <option value="FWD">Forwards</option>
-                </select>
                 <select id="player-sort" onchange="loadPlayers()">
                     <option value="goals">Goals</option>
                     <option value="assists">Assists</option>
@@ -301,16 +272,16 @@
         </div>
 
         <!-- Help / Scoring Guide -->
-        <div id="page-help" class="page">
-            <h2>FPL 2025/26 Rules & Scoring</h2>
+      <div id="page-help" class="page">
+            <h2>Rules & Scoring</h2>
 
             <div class="help-section">
-                <h3>📋 Squad Rules</h3>
+                <h3>Squad Rules</h3>
                 <ul>
-                    <li>15 players: 2 GK, 5 DEF, 5 MID, 3 FWD</li>
-                    <li>£100 million budget cap</li>
+                    <li>13 players: no position restrictions</li>
+                    <li>£60 million budget cap</li>
                     <li>Maximum 3 players from any single club</li>
-                    <li>Starting XI: 1 GK, 3-5 DEF, 1-5 MID, 1-3 FWD</li>
+                    <li>Starting 10 + 3 substitutes</li>
                 </ul>
             </div>
 

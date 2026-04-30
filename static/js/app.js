@@ -235,18 +235,18 @@ async function renderMyTeam() {
 
     const totalValue = currentSquad.reduce((s, sp) => s + (sp.player?.price || 0), 0);
     document.getElementById('team-name').textContent = currentTeam.name;
-    document.getElementById('team-budget').textContent = (currentTeam.budget_remaining || 0).toFixed(1);
+    document.getElementById('team-budget').textContent = `£${(currentTeam.budget_remaining || 0).toFixed(1)}m`;
     document.getElementById('team-value').textContent = totalValue.toFixed(1);
     document.getElementById('team-points').textContent = currentTeam.total_points || 0;
     document.getElementById('team-transfers').textContent =
         `${currentTeam.current_gw_transfers || 0} / FT ${currentTeam.free_transfers || 0}`;
 
-    if (currentSquad.length < 15) {
+    if (currentSquad.length < 13) {
         const pitchPlayers = document.getElementById('pitch-players');
         if (pitchPlayers) {
             pitchPlayers.innerHTML = `
                 <div class="pitch-empty">
-                    <h3>Squad incomplete (${currentSquad.length}/15)</h3>
+                    <h3>Squad incomplete (${currentSquad.length}/13)</h3>
                     <p>Head to the <a href="#" onclick="navigate('transfers')">Transfers</a> tab to pick your squad.</p>
                 </div>`;
         }
@@ -255,11 +255,7 @@ async function renderMyTeam() {
         return;
     }
 
-    const formation = detectFormation(currentSquad);
-    const sel = document.getElementById('formation-select');
-    if (sel) sel.value = formation;
-
-    renderPitch(currentSquad, formation);
+    renderPitch(currentSquad);
     renderBench(currentSquad);
     renderChips();
     renderChipStatusBar();
@@ -291,24 +287,22 @@ function renderChipStatusBar() {
     }
 }
 
-function renderPitch(squad, formation) {
+function renderPitch(squad) {
     const pitchPlayers = document.getElementById('pitch-players');
     if (!pitchPlayers) return;
     const starters = squad.filter(sp => sp.is_starting);
-    const [def, mid, fwd] = formation.split('-').map(Number);
-
-    const rowsByPos = {
-        GK: starters.filter(s => (s.player?.position || s.position) === 'GK'),
-        DEF: starters.filter(s => (s.player?.position || s.position) === 'DEF'),
-        MID: starters.filter(s => (s.player?.position || s.position) === 'MID'),
-        FWD: starters.filter(s => (s.player?.position || s.position) === 'FWD'),
-    };
 
     let html = '';
-    html += renderPitchRow(rowsByPos.GK, 8);
-    html += renderPitchRow(rowsByPos.DEF, 32);
-    html += renderPitchRow(rowsByPos.MID, 56);
-    html += renderPitchRow(rowsByPos.FWD, 80);
+    // 2-3-2-3 layout for 10 starters
+    const rows = [
+        { players: starters.slice(0, 2), top: 20 },
+        { players: starters.slice(2, 5), top: 40 },
+        { players: starters.slice(5, 7), top: 60 },
+        { players: starters.slice(7, 10), top: 80 },
+    ];
+    for (const row of rows) {
+        html += renderPitchRow(row.players, row.top);
+    }
     pitchPlayers.innerHTML = html;
 }
 
@@ -322,21 +316,23 @@ function renderPitchRow(players, topPercent) {
 }
 
 function renderPitchPlayer(sp, xPct, topPct) {
-    const pos = sp.player?.position || sp.position || 'DEF';
     const teamName = sp.player?.team?.name || '';
     const captainBadge = sp.is_captain ? '<div class="captain-badge">C</div>'
         : sp.is_vice_captain ? '<div class="vice-captain-badge">V</div>' : '';
     const points = sp.gw_points != null ? sp.gw_points : '–';
     const injured = sp.player?.is_injured ? '<span class="injury-dot" title="Injured/Doubt">!</span>' : '';
+    const gradient = shirtGradient(teamName);
+    const gradientLight = shirtGradientLight(teamName);
+    const clickHandler = `showPlayerMenu(${sp.id}, ${sp.player_id})`;
     return `
-        <div class="pitch-slot" style="left:${xPct}%">
-            <div class="player-card pos-${pos.toLowerCase()}" onclick="showPlayerMenu(${sp.id}, ${sp.player_id})">
+        <div class="pitch-slot" style="left:${xPct}%" onclick="${clickHandler}">
+            <div class="player-card fpl-card" onclick="${clickHandler}" style="--shirt-dark:${gradient};--shirt-light:${gradientLight}">
                 ${captainBadge}
                 ${injured}
-                <div class="shirt shirt-${pos.toLowerCase()}"></div>
-                <div class="player-name">${escapeHtml(sp.player?.name || '?')}</div>
-                <div class="player-meta">${escapeHtml(teamName)}</div>
-                <div class="player-points">${points}</div>
+                <div class="fpl-shirt" style="background:linear-gradient(180deg,${gradientLight}, ${gradient})"></div>
+                <div class="fpl-player-name">${escapeHtml(sp.player?.name || '?')}</div>
+                <div class="fpl-player-team">${escapeHtml(teamName)}</div>
+                <div class="fpl-player-points">${points}</div>
             </div>
         </div>`;
 }
@@ -345,25 +341,20 @@ function renderBench(squad) {
     const benchGrid = document.getElementById('bench-grid');
     if (!benchGrid) return;
     const bench = squad.filter(sp => !sp.is_starting)
-        .sort((a, b) => {
-            const posOrder = { GK: 0, DEF: 1, MID: 1, FWD: 1 };
-            const ap = a.player?.position || a.position;
-            const bp = b.player?.position || b.position;
-            if (posOrder[ap] !== posOrder[bp]) return posOrder[ap] - posOrder[bp];
-            return (a.bench_priority || 99) - (b.bench_priority || 99);
-        });
+        .sort((a, b) => (a.bench_priority || 99) - (b.bench_priority || 99));
 
     benchGrid.innerHTML = bench.map((sp, idx) => {
-        const pos = sp.player?.position || sp.position || 'DEF';
-        const slotLabel = pos === 'GK' ? 'GK' : `${idx}`;
+        const teamName = sp.player?.team?.name || '';
+        const gradient = shirtGradient(teamName);
+        const gradientLight = shirtGradientLight(teamName);
         return `
             <div class="bench-slot" onclick="showPlayerMenu(${sp.id}, ${sp.player_id})">
-                <div class="bench-slot-num">${slotLabel}</div>
-                <div class="player-card bench-card pos-${pos.toLowerCase()}">
-                    <div class="shirt shirt-${pos.toLowerCase()}"></div>
-                    <div class="player-name">${escapeHtml(sp.player?.name || '?')}</div>
-                    <div class="player-meta">${escapeHtml(sp.player?.team?.name || '')}</div>
-                    <div class="player-points">${sp.gw_points != null ? sp.gw_points : '–'}</div>
+                <div class="bench-slot-num">SUB ${idx + 1}</div>
+                <div class="player-card fpl-card bench-card">
+                    <div class="fpl-shirt" style="background:linear-gradient(180deg,${gradientLight}, ${gradient})"></div>
+                    <div class="fpl-player-name">${escapeHtml(sp.player?.name || '?')}</div>
+                    <div class="fpl-player-team">${escapeHtml(teamName)}</div>
+                    <div class="fpl-player-points">${sp.gw_points != null ? sp.gw_points : '–'}</div>
                 </div>
             </div>`;
     }).join('');
@@ -382,13 +373,6 @@ async function showPlayerMenu(squadId, playerId) {
 
     const isStarter = sp.is_starting;
     const benchLabel = isStarter ? 'Substitute (bench)' : 'Substitute (start)';
-    const benchAction = isStarter ? `benchPlayer(${squadId})` : `startPlayer(${squadId})`;
-    const buttons = [
-        { label: 'Make Captain', action: `setCaptain(${squadId})`, hide: !isStarter || sp.is_captain },
-        { label: 'Make Vice-Captain', action: `setViceCaptain(${squadId})`, hide: !isStarter || sp.is_vice_captain },
-        { label: benchLabel, action: benchAction },
-        { label: 'View player info', action: `showPlayerDetail(${playerId})` },
-    ];
 
     const overlay = document.getElementById('modal-overlay');
     const content = document.getElementById('modal-content');
@@ -399,13 +383,46 @@ async function showPlayerMenu(squadId, playerId) {
             <h3>${escapeHtml(sp.player?.name || 'Player')}</h3>
             <p class="muted">${escapeHtml(sp.player?.team?.name || '')} · ${sp.player?.position || ''} · £${(sp.player?.price || 0).toFixed(1)}m</p>
             <div class="menu-actions">
-                ${buttons.filter(b => !b.hide).map(b =>
-                    `<button class="btn btn-block btn-outline" onclick="closeModal(); ${b.action};">${b.label}</button>`
-                ).join('')}
-                <button class="btn btn-block btn-secondary" onclick="closeModal()">Close</button>
+                ${isStarter && !sp.is_captain ? `<button class="btn btn-block btn-outline" data-action="captain" data-squad="${squadId}">Make Captain</button>` : ''}
+                ${isStarter && !sp.is_vice_captain ? `<button class="btn btn-block btn-outline" data-action="vice-captain" data-squad="${squadId}">Make Vice-Captain</button>` : ''}
+                <button class="btn btn-block btn-outline" data-action="${isStarter ? 'bench' : 'start'}" data-squad="${squadId}">${benchLabel}</button>
+                <button class="btn btn-block btn-outline" data-action="detail" data-player="${playerId}">View player info</button>
+                <button class="btn btn-block btn-secondary" data-action="close">Close</button>
             </div>
         </div>`;
     overlay.style.display = 'block';
+
+    // Attach event listeners to buttons
+    content.querySelectorAll('[data-action]').forEach(btn => {
+        btn.addEventListener('click', async function(e) {
+            e.stopPropagation();
+            const action = this.dataset.action;
+            const squadId = parseInt(this.dataset.squad);
+            const playerId = parseInt(this.dataset.player);
+
+            switch (action) {
+                case 'captain':
+                    await setCaptain(squadId);
+                    break;
+                case 'vice-captain':
+                    await setViceCaptain(squadId);
+                    break;
+                case 'bench':
+                    await benchPlayer(squadId);
+                    break;
+                case 'start':
+                    await startPlayer(squadId);
+                    break;
+                case 'detail':
+                    closeModal();
+                    await showPlayerDetail(playerId);
+                    return; // Don't close modal again
+                case 'close':
+                    break;
+            }
+            closeModal();
+        });
+    });
 }
 
 function closeModal() {
@@ -414,6 +431,11 @@ function closeModal() {
     if (overlay) overlay.style.display = 'none';
     if (content) content.style.display = 'none';
 }
+
+// Click on overlay (dark area) closes modal
+document.addEventListener('click', (e) => {
+    if (e.target.id === 'modal-overlay') closeModal();
+});
 
 async function setCaptain(squadId) {
     const r = await apiFetch(`/users/${currentTeam.id}/captain/${squadId}`, { method: 'POST' });
@@ -515,7 +537,7 @@ function confirmChipActivation(chipType) {
                 : '<p class="muted">You can cancel this chip before the deadline.</p>'}
             <div class="chip-confirm-actions">
                 <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-                <button class="btn btn-success" onclick="closeModal(); activateChip('${chipType}')">Confirm</button>
+                <button class="btn btn-success" onclick="activateChip('${chipType}'); closeModal()">Confirm</button>
             </div>
         </div>`;
     overlay.style.display = 'block';
@@ -561,14 +583,14 @@ function renderTransferHeader() {
     const ft = currentTeam.free_transfers || 0;
     header.innerHTML = `
         <div class="transfer-summary-grid">
-            <div class="ts-cell"><div class="ts-label">Squad</div><div class="ts-value">${filled} / 15</div></div>
+            <div class="ts-cell"><div class="ts-label">Squad</div><div class="ts-value">${filled} / 13</div></div>
             <div class="ts-cell"><div class="ts-label">Bank</div><div class="ts-value">£${(currentTeam.budget_remaining || 0).toFixed(1)}m</div></div>
             <div class="ts-cell"><div class="ts-label">Value</div><div class="ts-value">£${totalValue.toFixed(1)}m</div></div>
             <div class="ts-cell"><div class="ts-label">Free Transfers</div><div class="ts-value">${ft}</div></div>
             <div class="ts-cell"><div class="ts-label">Active Chip</div><div class="ts-value">${chipDisplay(currentTeam.active_chip)}</div></div>
         </div>
         <div class="transfer-actions">
-            <button class="btn btn-outline" onclick="autoFillSquad()" ${filled >= 15 ? 'disabled' : ''}>Auto-pick remaining</button>
+            <button class="btn btn-outline" onclick="autoFillSquad()" ${filled >= 13 ? 'disabled' : ''}>Auto-pick remaining</button>
             <button class="btn btn-outline" onclick="resetTransferSelection()">Reset selection</button>
             <button class="btn btn-warn" onclick="confirmChipActivation('wildcard')" ${currentTeam.active_chip ? 'disabled' : ''}>Play Wildcard</button>
             <button class="btn btn-warn" onclick="confirmChipActivation('free_hit')" ${currentTeam.active_chip ? 'disabled' : ''}>Play Free Hit</button>
@@ -588,38 +610,52 @@ function renderTransferSquad() {
         return;
     }
 
-    const groups = { GK: [], DEF: [], MID: [], FWD: [] };
-    currentSquad.forEach(sp => {
-        const pos = sp.player?.position || sp.position;
-        if (groups[pos]) groups[pos].push(sp);
-    });
+    const starters = currentSquad.filter(sp => sp.is_starting);
+    const bench = currentSquad.filter(sp => !sp.is_starting);
 
-    const limits = { GK: 2, DEF: 5, MID: 5, FWD: 3 };
-    target.innerHTML = `
-        <h3>Your squad</h3>
-        ${['GK', 'DEF', 'MID', 'FWD'].map(pos => `
-            <div class="squad-group">
-                <h4>${posLabel(pos)} <span class="muted">${groups[pos].length}/${limits[pos]}</span></h4>
-                <div class="squad-row">
-                    ${Array.from({ length: limits[pos] }).map((_, i) => {
-                        const sp = groups[pos][i];
-                        if (!sp) {
-                            return `<div class="squad-cell empty"><div class="empty-slot">+ ${pos}</div></div>`;
-                        }
-                        const isSel = selectedOutPlayer && selectedOutPlayer.id === sp.id;
-                        return `
-                            <div class="squad-cell ${isSel ? 'selected' : ''}" onclick="toggleOutPlayer(${sp.id})">
-                                <div class="player-mini pos-${pos.toLowerCase()}">
-                                    <div class="shirt shirt-${pos.toLowerCase()}"></div>
-                                    <div class="pm-name">${escapeHtml(sp.player?.name || '')}</div>
-                                    <div class="pm-team">${escapeHtml(sp.player?.team?.name || '')}</div>
-                                    <div class="pm-price">£${(sp.player?.price || 0).toFixed(1)}m</div>
-                                    <button class="btn-x" onclick="event.stopPropagation();dropPlayer(${sp.player_id})" title="Drop">×</button>
-                                </div>
-                            </div>`;
-                    }).join('')}
-                </div>
-            </div>`).join('')}`;
+    let html = '<h3>Your squad (' + currentSquad.length + '/13)</h3>';
+
+    html += '<div class="squad-group"><h4>Starting 10</h4><div class="squad-row">';
+    for (let i = 0; i < 10; i++) {
+        const sp = starters[i];
+        if (!sp) {
+            html += '<div class="squad-cell empty"><div class="empty-slot">+ player</div></div>';
+        } else {
+            const isSel = selectedOutPlayer && selectedOutPlayer.id === sp.id;
+            html += `
+                <div class="squad-cell ${isSel ? 'selected' : ''}" onclick="toggleOutPlayer(${sp.id})">
+                    <div class="player-mini">
+                        <div class="pm-name">${escapeHtml(sp.player?.name || '')}</div>
+                        <div class="pm-team">${escapeHtml(sp.player?.team?.name || '')}</div>
+                        <div class="pm-price">&#163;${(sp.player?.price || 0).toFixed(1)}m</div>
+                        <button class="btn-x" onclick="event.stopPropagation();dropPlayer(${sp.player_id})" title="Drop">&#215;</button>
+                    </div>
+                </div>`;
+        }
+    }
+    html += '</div></div>';
+
+    html += '<div class="squad-group"><h4>Bench</h4><div class="squad-row">';
+    for (let i = 0; i < 3; i++) {
+        const sp = bench[i];
+        if (!sp) {
+            html += '<div class="squad-cell empty"><div class="empty-slot">+ player</div></div>';
+        } else {
+            const isSel = selectedOutPlayer && selectedOutPlayer.id === sp.id;
+            html += `
+                <div class="squad-cell ${isSel ? 'selected' : ''}" onclick="toggleOutPlayer(${sp.id})">
+                    <div class="player-mini">
+                        <div class="pm-name">${escapeHtml(sp.player?.name || '')}</div>
+                        <div class="pm-team">${escapeHtml(sp.player?.team?.name || '')}</div>
+                        <div class="pm-price">&#163;${(sp.player?.price || 0).toFixed(1)}m</div>
+                        <button class="btn-x" onclick="event.stopPropagation();dropPlayer(${sp.player_id})" title="Drop">&#215;</button>
+                    </div>
+                </div>`;
+        }
+    }
+    html += '</div></div>';
+
+    target.innerHTML = html;
 }
 
 function posLabel(pos) {
@@ -633,12 +669,6 @@ function toggleOutPlayer(squadId) {
         selectedOutPlayer = null;
     } else {
         selectedOutPlayer = sp;
-        // Auto-set position filter to match
-        const filter = document.getElementById('transfer-position-filter');
-        if (filter) {
-            filter.value = sp.player?.position || sp.position || '';
-            renderTransferList();
-        }
     }
     renderTransferSquad();
 }
@@ -663,12 +693,10 @@ function renderTransferList() {
     const container = document.getElementById('transfer-results');
     if (!container) return;
     const search = (document.getElementById('transfer-search-input')?.value || '').toLowerCase();
-    const position = document.getElementById('transfer-position-filter')?.value || '';
     const sortKey = document.getElementById('transfer-sort')?.value || 'points';
 
     const squadIds = new Set(currentSquad.map(sp => sp.player_id));
     let players = transferPlayersCache.slice();
-    if (position) players = players.filter(p => p.position === position);
     if (search) players = players.filter(p => (p.name || '').toLowerCase().includes(search));
 
     const sortMap = {
@@ -682,27 +710,23 @@ function renderTransferList() {
 
     container.innerHTML = `
         <div class="transfer-list-header">
-            <div>Player</div><div>Team</div><div>Pos</div>
+            <div>Player</div><div>Team</div>
             <div>£</div><div>Pts</div><div>Form</div><div>%</div><div></div>
         </div>
         <div class="transfer-list">
             ${players.slice(0, 100).map(p => {
                 const inSquad = squadIds.has(p.id);
-                const canSwap = selectedOutPlayer
-                    && (selectedOutPlayer.player?.position || selectedOutPlayer.position) === p.position
-                    && !inSquad;
                 const action = inSquad
                     ? `<button class="btn btn-sm btn-outline" onclick="dropPlayer(${p.id})">Drop</button>`
-                    : canSwap
+                    : selectedOutPlayer
                         ? `<button class="btn btn-sm btn-primary" onclick="swapPlayer(${p.id})">Swap In</button>`
-                        : currentSquad.length < 15
+                        : currentSquad.length < 13
                             ? `<button class="btn btn-sm btn-secondary" onclick="addPlayer(${p.id})">Add</button>`
                             : '';
                 return `
                     <div class="transfer-row ${inSquad ? 'in-squad' : ''}">
                         <div class="t-name">${escapeHtml(p.name)}${p.is_injured ? ' <span class="injury-dot">!</span>' : ''}</div>
                         <div>${escapeHtml(p.team?.name || '')}</div>
-                        <div><span class="pos-badge pos-${p.position.toLowerCase()}">${p.position}</span></div>
                         <div>£${p.price.toFixed(1)}m</div>
                         <div>${p.total_points_season || 0}</div>
                         <div>${(p.form || 0).toFixed(1)}</div>
@@ -779,29 +803,24 @@ async function swapPlayer(playerInId) {
 
 async function autoFillSquad() {
     if (!currentTeam) return;
-    const limits = { GK: 2, DEF: 5, MID: 5, FWD: 3 };
-    const counts = { GK: 0, DEF: 0, MID: 0, FWD: 0 };
-    currentSquad.forEach(sp => { counts[sp.player.position]++; });
 
-    // Sort cache: cheapest first per position so we can fill within budget
-    for (const pos of ['GK', 'DEF', 'MID', 'FWD']) {
-        const need = limits[pos] - counts[pos];
-        if (need <= 0) continue;
-        const candidates = transferPlayersCache
-            .filter(p => p.position === pos && !currentSquad.some(s => s.player_id === p.id))
-            .sort((a, b) => a.price - b.price);
-        for (let i = 0; i < need; i++) {
-            const p = candidates[i];
-            if (!p) break;
-            const r = await apiFetch('/transfers/player', {
-                method: 'POST',
-                body: JSON.stringify({ fantasy_team_id: currentTeam.id, player_in_id: p.id }),
-            });
-            if (!r.ok) {
-                const err = await r.json();
-                showToast(`Stopped: ${err.detail || 'failed'}`, 'error');
-                break;
-            }
+    // Pick cheapest 13 players not already in squad (no position limits)
+    const candidates = transferPlayersCache
+        .filter(p => !currentSquad.some(s => s.player_id === p.id))
+        .sort((a, b) => a.price - b.price);
+
+    const need = 13 - currentSquad.length;
+    for (let i = 0; i < need; i++) {
+        const p = candidates[i];
+        if (!p) break;
+        const r = await apiFetch('/transfers/player', {
+            method: 'POST',
+            body: JSON.stringify({ fantasy_team_id: currentTeam.id, player_in_id: p.id }),
+        });
+        if (!r.ok) {
+            const err = await r.json();
+            showToast(`Stopped: ${err.detail || 'failed'}`, 'error');
+            break;
         }
     }
     showToast('Auto-pick complete', 'success');
@@ -814,11 +833,9 @@ async function autoFillSquad() {
 // ===== PLAYERS PAGE =====
 async function loadPlayers() {
     const search = document.getElementById('player-search')?.value || '';
-    const position = document.getElementById('player-position')?.value || '';
     const sort = document.getElementById('player-sort')?.value || 'points';
     let url = `/players/?order_by=${sort}`;
     if (search) url += `&search=${encodeURIComponent(search)}`;
-    if (position) url += `&position=${position}`;
     try {
         const r = await apiFetch(url);
         if (!r.ok) return;
@@ -835,7 +852,7 @@ function renderPlayers(players) {
             <table>
                 <thead>
                     <tr>
-                        <th>Name</th><th>Team</th><th>Pos</th>
+                        <th>Name</th><th>Team</th>
                         <th>Price</th><th>Pts</th><th>Goals</th><th>Assists</th><th>CS</th>
                         <th>Form</th><th>%Sel</th>
                     </tr>
@@ -845,7 +862,6 @@ function renderPlayers(players) {
                         <tr onclick="showPlayerDetail(${p.id})">
                             <td class="player-name">${escapeHtml(p.name)}</td>
                             <td>${escapeHtml(p.team?.name || '')}</td>
-                            <td><span class="pos-badge pos-${p.position.toLowerCase()}">${p.position}</span></td>
                             <td>£${p.price.toFixed(1)}m</td>
                             <td>${p.total_points_season || 0}</td>
                             <td>${p.goals || 0}</td>
@@ -1357,14 +1373,17 @@ async function loadDreamTeam() {
             return;
         }
 
-        const groups = { GK: [], DEF: [], MID: [], FWD: [] };
-        data.players.forEach(p => { if (groups[p.position]) groups[p.position].push(p); });
-
         let html = '';
-        html += renderDreamRow(groups.GK, 8);
-        html += renderDreamRow(groups.DEF, 32);
-        html += renderDreamRow(groups.MID, 56);
-        html += renderDreamRow(groups.FWD, 80);
+        // Simple 2-3-2-3 layout for 10 players (no GK)
+        const rows = [
+            { players: data.players.slice(0, 2), top: 20 },
+            { players: data.players.slice(2, 5), top: 40 },
+            { players: data.players.slice(5, 7), top: 60 },
+            { players: data.players.slice(7, 10), top: 80 },
+        ];
+        for (const row of rows) {
+            html += renderDreamRow(row.players, row.top);
+        }
         container.innerHTML = html;
 
         if (totalDiv) {
@@ -1382,14 +1401,17 @@ function renderDreamRow(players, top) {
     return `<div class="pitch-row" style="top:${top}%">${players.map((p, i) => {
         const x = (100 / (players.length + 1)) * (i + 1);
         const captain = p.is_captain ? '<div class="captain-badge">C</div>' : '';
+        const teamName = p.team_name || '';
+        const gradient = shirtGradient(teamName);
+        const gradientLight = shirtGradientLight(teamName);
         return `
             <div class="pitch-slot" style="left:${x}%">
-                <div class="player-card pos-${p.position.toLowerCase()}">
+                <div class="player-card fpl-card pos-${p.position.toLowerCase()}" style="--shirt-dark:${gradient};--shirt-light:${gradientLight}">
                     ${captain}
-                    <div class="shirt shirt-${p.position.toLowerCase()}"></div>
-                    <div class="player-name">${escapeHtml(p.name)}</div>
-                    <div class="player-meta">${escapeHtml(p.team_name || '')}</div>
-                    <div class="player-points">${p.points} pts</div>
+                    <div class="fpl-shirt" style="background:linear-gradient(180deg,${gradientLight}, ${gradient})"></div>
+                    <div class="fpl-player-name">${escapeHtml(p.name)}</div>
+                    <div class="fpl-player-team">${escapeHtml(teamName)}</div>
+                    <div class="fpl-player-points">${p.points} pts</div>
                 </div>
             </div>`;
     }).join('')}</div>`;
@@ -1562,6 +1584,26 @@ function formatDateTime(iso) {
 function formatTime(iso) {
     if (!iso) return '';
     return new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+}
+
+// Generate deterministic HSL color from team name
+function teamColor(name) {
+    if (!name) return { h: 200, s: 60, l: 40 };
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    const h = Math.abs(hash) % 360;
+    // Avoid very light or very dark colors
+    return { h, s: 55 + (Math.abs(hash >> 8) % 20), l: 30 + (Math.abs(hash >> 4) % 20) };
+}
+
+// FPL-style team shirt background gradient from team name
+function shirtGradient(name) {
+    const c = teamColor(name);
+    return `hsl(${c.h}, ${c.s}%, ${c.l}%)`;
+}
+function shirtGradientLight(name) {
+    const c = teamColor(name);
+    return `hsl(${c.h}, ${c.s}%, ${Math.min(c.l + 15, 65)}%)`;
 }
 
 // ===== INIT =====

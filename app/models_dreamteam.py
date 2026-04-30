@@ -1,7 +1,6 @@
 """Dream Team model for Fantasy Football Isle of Man.
 
-FPL Dream Team: Each gameweek, the best-scoring player at each position
-(GK, DEF, MID, FWD) is selected to form the Dream Team.
+Top 10 scoring players each gameweek form the Dream Team (no position filter).
 """
 from sqlalchemy import Column, Integer, Float, String, ForeignKey, DateTime, UniqueConstraint
 from sqlalchemy.orm import relationship
@@ -13,15 +12,15 @@ from app.database import Base
 class DreamTeam(Base):
     """Dream Team player selection for a gameweek.
 
-    FPL: Best scoring player per position (GK, DEF, MID, FWD)
-    each gameweek forms the Dream Team.
+    Top 10 scoring players each gameweek form the Dream Team.
+    No position restrictions.
     """
     __tablename__ = "dream_teams"
 
     id = Column(Integer, primary_key=True, index=True)
     gameweek_id = Column(Integer, ForeignKey("gameweeks.id"), nullable=False)
     player_id = Column(Integer, ForeignKey("players.id"), nullable=False)
-    position = Column(String(3), nullable=False)  # GK, DEF, MID, FWD
+    rank = Column(Integer, nullable=False)  # 1-10 ranking
     points = Column(Integer, default=0)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
@@ -29,14 +28,14 @@ class DreamTeam(Base):
     gameweek = relationship("Gameweek", overlaps="player_points")
 
     __table_args__ = (
-        UniqueConstraint("gameweek_id", "position", name="uq_dreamteam_gw_pos"),
+        UniqueConstraint("gameweek_id", "rank", name="uq_dreamteam_gw_rank"),
     )
 
 
 class DreamTeamNomination(Base):
     """User's Dream Team nomination for prize draw.
 
-    FPL: Managers can nominate one player from the Dream Team
+    Managers can nominate one player from the Dream Team
     before the deadline to enter a prize draw.
     """
     __tablename__ = "dream_team_nominations"

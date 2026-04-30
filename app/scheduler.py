@@ -37,15 +37,6 @@ def start_scheduler():
         replace_existing=True,
     )
 
-    # Saturday 9:00 PM - Calculate bonus points
-    scheduler.add_job(
-        calculate_bonus_points,
-        CronTrigger(day_of_week="sat", hour=21, minute=0),
-        id="calculate_bonus",
-        name="Calculate bonus points",
-        replace_existing=True,
-    )
-
     # Sunday 11:00 PM - Score gameweek and process transfers
     scheduler.add_job(
         process_gameweek_end,
@@ -90,77 +81,6 @@ def apply_deadline():
             logger.info(f"Gameweek {current_gw.number} closed (deadline applied)")
     except Exception as e:
         logger.error(f"Deadline error: {e}")
-        db.rollback()
-    finally:
-        db.close()
-
-
-def calculate_bonus_points():
-    """Calculate bonus points for completed fixtures."""
-    logger.info("Calculating bonus points...")
-    db = SessionLocal()
-    try:
-        current_gw = db.query(Gameweek).filter(
-            Gameweek.closed == False
-        ).order_by(Gameweek.number.desc()).first()
-
-        if current_gw and not current_gw.bonus_calculated:
-            fixtures = current_gw.fixtures
-            for fixture in fixtures:
-                if not fixture.played:
-                    continue
-
-                home_team = db.query(Team).filter(Team.name == fixture.home_team_name).first()
-                away_team = db.query(Team).filter(Team.name == fixture.away_team_name).first()
-
-                all_players_bps = []
-                for team in [home_team, away_team]:
-                    if not team:
-                        continue
-                    team_players = db.query(Player).filter(
-                        Player.team_id == team.id,
-                        Player.is_active == True,
-                    ).all()
-
-                    for player in team_players:
-                        pgp = db.query(PlayerGameweekPoints).filter(
-                            PlayerGameweekPoints.player_id == player.id,
-                            PlayerGameweekPoints.gameweek_id == current_gw.id,
-                        ).first()
-                        if not pgp or not pgp.did_play:
-                            continue
-
-                        bps = scoring.calculate_bps(
-                            position=player.position,
-                            goals_scored=pgp.goals_scored,
-                            clean_sheet=pgp.clean_sheet,
-                            goals_conceded=pgp.goals_conceded,
-                            saves=pgp.saves,
-                            minutes_played=pgp.minutes_played,
-                        )
-                        pgp.bps_score = bps
-                        all_players_bps.append({"player_id": player.id, "bps": bps})
-
-                if len(all_players_bps) >= 3:
-                    bonus_map = scoring.award_bonus_points(all_players_bps)
-                    for player_id, bonus in bonus_map.items():
-                        pgp = db.query(PlayerGameweekPoints).filter(
-                            PlayerGameweekPoints.player_id == player_id,
-                            PlayerGameweekPoints.gameweek_id == current_gw.id,
-                        ).first()
-                        if pgp and bonus > 0:
-                            pgp.bonus_points = bonus
-                            pgp.total_points = pgp.base_points + bonus
-                            player = db.query(Player).filter(Player.id == player_id).first()
-                            if player:
-                                player.bonus += bonus
-                                player.total_points_season += bonus
-
-            current_gw.bonus_calculated = True
-            db.commit()
-            logger.info(f"Bonus points calculated for GW {current_gw.number}")
-    except Exception as e:
-        logger.error(f"Bonus calculation error: {e}")
         db.rollback()
     finally:
         db.close()

@@ -125,30 +125,30 @@ def seed_sample_data(db: Session = Depends(get_db)):
 
     db.flush()
 
-    # Create sample gameweeks
+    # Create 24 gameweeks (full season)
     season = db.query(Season).filter(Season.name == "2025-26").first()
     if not season:
-        season = Season(name="2025-26", total_gameweeks=38, started=True)
+        season = Season(name="2025-26", total_gameweeks=24, started=True)
         db.add(season)
         db.flush()
 
-    existing_gws = db.query(Gameweek).filter(
-        Gameweek.season == "2025-26"
-    ).count()
+    # Season starts Saturday August 16, 2025, each GW is 1 week, deadline is Saturday 11am
+    season_start = date(2025, 8, 16)  # Saturday
 
-    for gw_num in range(1, 10):
+    for gw_num in range(1, 25):
         gw = db.query(Gameweek).filter(
             Gameweek.number == gw_num,
             Gameweek.season == "2025-26",
         ).first()
         if not gw:
-            start = date(2025, 8, 16) + timedelta(weeks=gw_num - 1)
-            deadline = datetime(2025, 8, 16, 11, 0) + timedelta(weeks=gw_num - 1)
+            start = season_start + timedelta(weeks=gw_num - 1)
+            # Deadline is Saturday at 11:00 AM
+            deadline = datetime(start.year, start.month, start.day, 11, 0)
             gw = Gameweek(
                 number=gw_num,
                 season="2025-26",
                 start_date=start,
-                end_date=start + timedelta(days=7),
+                end_date=start + timedelta(days=6),
                 deadline=deadline,
                 closed=gw_num > 2,
                 scored=gw_num > 2,
@@ -225,56 +225,56 @@ def create_sample_users(db: Session = Depends(get_db)):
         db.flush()
         users_created += 1
 
-        # Create fantasy team
+        # Create fantasy team with £60m budget
         ft = FantasyTeam(
             user_id=user.id,
             name=team_name,
             season="2025-26",
-            budget=100.0,
-            budget_remaining=100.0,
+            budget=60.0,
+            budget_remaining=60.0,
             free_transfers=1,
             free_transfers_next_gw=1,
         )
         db.add(ft)
         db.flush()
 
-        # Add players to squad (15 players within budget)
+        # Add players to squad (13 players within £60m budget, no position restrictions)
         shuffled = list(players)
         random.shuffle(shuffled)
 
         squad = []
-        budget = 100.0
-        position_counts = {"GK": 0, "DEF": 0, "MID": 0, "FWD": 0}
-        position_limits = {"GK": 2, "DEF": 5, "MID": 5, "FWD": 3}
+        budget = 60.0
 
         for player in shuffled:
-            if len(squad) >= 15:
+            if len(squad) >= 13:
                 break
             if budget < player.price:
                 continue
-            if position_counts[player.position] >= position_limits[player.position]:
+            # Club limit: max 3 players from same team
+            same_team = sum(1 for (p, _) in squad if p.team_id == player.team_id)
+            if same_team >= 3:
                 continue
 
             budget -= player.price
-            position_counts[player.position] += 1
             squad.append((player, budget))
 
-        # Add players with position slots
+        # Add players with position slots (10 starters + 3 subs)
         slot = 1
         captain_set = False
         vice_captain_set = False
 
         for player, _ in squad:
+            is_starting = slot <= 10
             sp = SquadPlayer(
                 fantasy_team_id=ft.id,
                 player_id=player.id,
                 position_slot=slot,
-                is_starting=slot <= 11,
-                is_captain=not captain_set and slot <= 11,
-                is_vice_captain=not vice_captain_set and slot <= 11 and slot != (1 if not captain_set else 2),
+                is_starting=is_starting,
+                is_captain=not captain_set and is_starting,
+                is_vice_captain=not vice_captain_set and is_starting and slot != (1 if not captain_set else 2),
                 purchase_price=player.price,
                 selling_price=player.price,
-                bench_priority=slot if slot > 11 else 99,
+                bench_priority=slot - 10 if not is_starting else 99,
             )
             if sp.is_captain:
                 captain_set = True

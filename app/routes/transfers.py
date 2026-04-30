@@ -25,9 +25,9 @@ from app.scoring import (
 router = APIRouter(prefix="/api/transfers", tags=["transfers"])
 
 
-SQUAD_LIMIT = 15
-POSITION_LIMITS = {"GK": 2, "DEF": 5, "MID": 5, "FWD": 3}
+SQUAD_LIMIT = 13
 MAX_PER_CLUB = 3
+STARTING_XI = 10
 
 
 def _resolve_team(db: Session, fantasy_team_id=None, user_id=None):
@@ -97,7 +97,7 @@ def transfer_player(payload: dict, db: Session = Depends(get_db)):
             "budget_remaining": round(ft.budget_remaining, 1),
         }
 
-    # --- Add only (filling empty slot) ---
+   # --- Add only (filling empty slot) ---
     if player_in_id and not player_out_id:
         if squad_len >= SQUAD_LIMIT:
             raise HTTPException(status_code=400, detail=f"Squad full ({SQUAD_LIMIT} players). Drop a player first.")
@@ -107,10 +107,6 @@ def transfer_player(payload: dict, db: Session = Depends(get_db)):
         if any(s.player_id == player_in.id for s in squad):
             raise HTTPException(status_code=400, detail="Player already in squad")
 
-        # Position limit check
-        same_pos = sum(1 for s in squad if s.player.position == player_in.position)
-        if same_pos >= POSITION_LIMITS[player_in.position]:
-            raise HTTPException(status_code=400, detail=f"Already have {POSITION_LIMITS[player_in.position]} {player_in.position}")
         # Club limit
         same_team = sum(1 for s in squad if s.player.team_id == player_in.team_id)
         if same_team >= MAX_PER_CLUB:
@@ -119,35 +115,26 @@ def transfer_player(payload: dict, db: Session = Depends(get_db)):
         if ft.budget_remaining < player_in.price:
             raise HTTPException(
                 status_code=400,
-                detail=f"Cannot afford. Need £{player_in.price:.1f}m, have £{ft.budget_remaining:.1f}m",
+                detail=f"Cannot afford. Need &#163;{player_in.price:.1f}m, have &#163;{ft.budget_remaining:.1f}m",
             )
 
-        # Position slot - assign by current count
-        slot_base = {"GK": 1, "DEF": 3, "MID": 8, "FWD": 13}
-        position_slot = slot_base[player_in.position] + same_pos
-
-        # Starting/bench: first 11 by squad order are starting (FPL default 4-4-2-ish);
-        # for simplicity, mark as starting if there's room in a default 4-4-2.
-        starting_caps = {"GK": 1, "DEF": 4, "MID": 4, "FWD": 2}
-        starting_pos_count = sum(
-            1 for s in squad if s.is_starting and s.player.position == player_in.position
-        )
-        is_starting = starting_pos_count < starting_caps[player_in.position]
+        # Assign slot - any position allowed
+        starters = [s for s in squad if s.is_starting]
+        is_starting = len(starters) < 10
 
         new_sp = SquadPlayer(
             fantasy_team_id=ft.id,
             player_id=player_in.id,
-            position_slot=position_slot,
+            position_slot=squad_len + 1,
             is_starting=is_starting,
             purchase_price=player_in.price,
             selling_price=player_in.price,
-            bench_priority=99 if is_starting else (squad_len - 10),
+            bench_priority=99 if is_starting else (squad_len - 9),
         )
         db.add(new_sp)
         ft.budget_remaining = round(ft.budget_remaining - player_in.price, 1)
 
-        # If squad is now full, increment transfers (but not the first 15 picks)
-        # First 15 picks are squad creation, no transfer hit.
+        # If squad is now full, increment transfers (but not the first 13 picks)
         if squad_len + 1 == SQUAD_LIMIT:
             pass  # No transfer cost when filling initial squad
 
@@ -169,11 +156,6 @@ def transfer_player(payload: dict, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Player to add not found")
     if any(s.player_id == player_in.id for s in squad):
         raise HTTPException(status_code=400, detail="Player already in squad")
-    if player_in.position != sp_out.player.position:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Position mismatch: cannot swap {sp_out.player.position} for {player_in.position}",
-        )
 
     # Club limit (excluding the outgoing player)
     same_team = sum(
@@ -437,8 +419,8 @@ def make_transfer(request: TransferRequest, db: Session = Depends(get_db)):
 def play_wildcard(user_id: int, db: Session = Depends(get_db)):
     """Play wildcard chip - unlimited free transfers this gameweek.
 
-    FPL 2025/26 rules:
-    - 2 wildcards per season (GW 1-19, GW 20-38)
+    Rules:
+    - 1 wildcard per season
     - Can be cancelled before deadline
     - Resets transfer limit and point hits
     """
@@ -453,8 +435,6 @@ def play_wildcard(user_id: int, db: Session = Depends(get_db)):
     if not current_gw:
         raise HTTPException(status_code=400, detail="No active gameweek")
 
-    # Determine which wildcard half
-    is_first_half = current_gw.number <= 19
     chip_name = "wildcard"
 
     available, message = check_chip_availability(ft, chip_name, current_gw.number)
@@ -472,11 +452,6 @@ def play_wildcard(user_id: int, db: Session = Depends(get_db)):
     return {
         "status": "activated",
         "message": message,
-        "half": "first" if is_first_half else "second",
-        "remaining_wildcards": (
-            (0 if ft.wildcard_first_half else 1) +
-            (0 if ft.wildcard_second_half else 1)
-        ),
     }
 
 
@@ -484,10 +459,9 @@ def play_wildcard(user_id: int, db: Session = Depends(get_db)):
 def play_free_hit(user_id: int, db: Session = Depends(get_db)):
     """Play Free Hit chip - temporary squad for 1 gameweek.
 
-    FPL 2025/26 rules:
-    - 2 per season (GW 1-19, GW 20-38)
+    Rules:
+    - 1 per season
     - Squad reverts to previous state next GW
-    - Cannot be used in consecutive gameweeks
     - Cannot be cancelled once confirmed
     """
     ft = db.query(FantasyTeam).filter(FantasyTeam.user_id == user_id).first()
@@ -599,22 +573,12 @@ def get_transfer_status(user_id: int, db: Session = Depends(get_db)):
         "budget_remaining": ft.budget_remaining,
         "transfer_deadline_exceeded": ft.transfer_deadline_exceeded,
         "squad_size": len(squad),
-        "team_composition": {
-            "GK": sum(1 for sp in squad if sp.player.position == "GK"),
-            "DEF": sum(1 for sp in squad if sp.player.position == "DEF"),
-            "MID": sum(1 for sp in squad if sp.player.position == "MID"),
-            "FWD": sum(1 for sp in squad if sp.player.position == "FWD"),
-        },
         "active_chip": ft.active_chip,
         "chip_status": chip_status,
-        "wildcard_first_half_available": not ft.wildcard_first_half,
-        "wildcard_second_half_available": not ft.wildcard_second_half,
-        "free_hit_first_half_available": not ft.free_hit_first_half,
-        "free_hit_second_half_available": not ft.free_hit_second_half,
-        "bench_boost_first_half_available": not ft.bench_boost_first_half,
-        "bench_boost_second_half_available": not ft.bench_boost_second_half,
-        "triple_captain_first_half_available": not ft.triple_captain_first_half,
-        "triple_captain_second_half_available": not ft.triple_captain_second_half,
+        "wildcard_used": ft.wildcard_used,
+        "free_hit_used": ft.free_hit_used,
+        "bench_boost_used": ft.bench_boost_used,
+        "triple_captain_used": ft.triple_captain_used,
     }
 
 

@@ -252,7 +252,7 @@ def main():
     # ---- Create Season ----
     season = db.query(Season).filter(Season.name == "2025-26").first()
     if not season:
-        season = Season(name="2025-26", total_gameweeks=26, started=True)
+        season = Season(name="2025-26", total_gameweeks=24, started=True)
         db.add(season)
         db.flush()
 
@@ -432,114 +432,147 @@ def main():
     print(f"Created {db.query(Gameweek).count()} gameweeks")
     print(f"Total fixtures: {db.query(Fixture).count()}")
 
-    # ---- Create Players from Results ----
-    print("\n=== Creating Players from Match Results ===")
+    # ---- Create Players from Real Data ----
+    print("\n=== Loading Real Players from Cache ===")
 
-    # Since the FullTime API doesn't provide individual player stats directly,
-    # we'll create realistic player rosters for each team based on the team data.
-    # Each team gets ~15 players with realistic names and stats.
+    # Load player data from cached FullTime API scrape
+    real_players_file = "data/real_players.json"
+    stats_cache_file = "data/player_stats_cache.json"
 
-    # IOM player first names (common Isle of Man / English names)
-    iom_first_names = [
-        "Connor", "James", "Daniel", "Kyle", "Jack", "Thomas", "Ben", "Oscar",
-        "Ryan", "George", "William", "Harry", "Charlie", "Noah", "Liam",
-        "Adam", "Sean", "Conor", "Luke", "Josh", "Mark", "Paul", "David",
-        "Michael", "Andrew", "Simon", "Peter", "John", "Stephen", "Paul",
-        "Callum", "Craig", "Dean", "Gavin", "Lee", "Matt", "Niall", "Owen",
-        "Toby", "Tyler", "Zac",
-    ]
+    player_data = []
+    if os.path.exists(real_players_file):
+        with open(real_players_file) as f:
+            raw = json.load(f)
+            player_data = raw.get("players", raw) if isinstance(raw, dict) else raw
+        print(f"Loaded {len(player_data)} players from {real_players_file}")
 
-    iom_last_names = [
-        "Cronk", "Kneale", "Moylan", "Murray", "Quinlivan", "Sargeant",
-        "Smith", "Jones", "Brown", "Wilson", "Taylor", "Robinson",
-        "Clarke", "Miller", "Campbell", "Evans", "Thompson", "Walker",
-        "Hall", "Allen", "Young", "Wright", "Scott", "Baker", "Adams",
-        "Hill", "Nelson", "Carter", "Mitchell", "Roberts", "Phillips",
-        "Evans", "Turner", "Cooper", "Harris", "Morris", "Reid", "Wood",
-        "James", "Watson", "Bates",
-    ]
+    # Load stats cache for additional data
+    stats_cache = {}
+    if os.path.exists(stats_cache_file):
+        with open(stats_cache_file) as f:
+            stats_cache = json.load(f)
+        print(f"Loaded {len(stats_cache)} stats entries from {stats_cache_file}")
 
-    total_players = 0
-    for team in team_map.values():
-        existing_count = db.query(Player).filter(Player.team_id == team.id).count()
-        if existing_count >= 15:
+    # Group players by team
+    players_by_team = {}
+    for p in player_data:
+        name = p.get("name", "").strip()
+        person_id = p.get("personID", "")
+        if not name:
             continue
 
-        needed = 15 - existing_count
-        # Generate realistic players
-        positions_needed = {"GK": 2, "DEF": 5, "MID": 5, "FWD": 3}
+        # Get team from stats cache
+        team_raw = None
+        if person_id in stats_cache:
+            team_raw = stats_cache[person_id].get("team", "")
 
-        # Use team form data to estimate player performance
-        form_matches = teams_form.get(team.name, [])
-        team_goals_scored = sum(
-            parse_score(r.get("score", ""))[0] if r.get("homeTeam", "").startswith(team.name) or clean_team_name(r.get("homeTeam", "")) == team.name
+        # If no team in cache, try to find it from existing DB players
+        if not team_raw:
+            existing = db.query(Player).filter(
+                Player.name == name, Player.is_active == True
+            ).first()
+            if existing and existing.team:
+                team_raw = existing.team.name
+
+        team = clean_team_name(team_raw) if team_raw else None
+
+        if team and team in team_map:
+            players_by_team.setdefault(team, []).append({
+                "name": name,
+                "personID": person_id,
+                "team": team,
+            })
+
+    # Assign positions and create players
+    total_players = 0
+    for team_name, players_list in players_by_team.items():
+        team = team_map[team_name]
+        existing_count = db.query(Player).filter(Player.team_id == team.id).count()
+
+        if existing_count >= 15:
+            print(f"  {team_name}: already has {existing_count} players, skipping")
+            continue
+
+        # Get form data for this team
+        form_matches = teams_form.get(team_name, [])
+        team_goals = sum(
+            parse_score(r.get("score", ""))[0] if clean_team_name(r.get("homeTeam", "")) == team_name
             else parse_score(r.get("score", ""))[1]
             for r in form_matches
             if parse_score(r.get("score", ""))[0] is not None
         )
-        team_conceded = sum(
-            parse_score(r.get("score", ""))[1] if r.get("homeTeam", "").startswith(team.name) or clean_team_name(r.get("homeTeam", "")) == team.name
-            else parse_score(r.get("score", ""))[0]
-            for r in form_matches
-            if parse_score(r.get("score", ""))[0] is not None
+        team_games = sum(1 for r in results if clean_team_name(r.get("homeTeam", "")) == team_name or clean_team_name(r.get("awayTeam", "")) == team_name)
+
+        # Assign positions using the position assignment function
+        players_with_positions = assign_positions_to_players(
+            [{"name": p["name"], "personID": p["personID"], "goals": 0, "apps": 0} for p in players_list],
+            team_name
         )
 
-        # Count games played by this team
-        team_games = sum(1 for r in results if clean_team_name(r.get("homeTeam", "")) == team.name or clean_team_name(r.get("awayTeam", "")) == team.name)
+        for p in players_with_positions:
+            name = p["name"]
+            person_id = p.get("personID", "")
+            pos = p.get("position", "MID")
 
-        player_positions = []
-        for pos, count in positions_needed.items():
-            player_positions.extend([pos] * count)
+            # Get stats from cache
+            goals = 0
+            apps = 0
+            yellows = 0
+            reds = 0
+            if person_id in stats_cache:
+                goals = stats_cache[person_id].get("goals", 0)
+                apps = stats_cache[person_id].get("appearances", 0)
+                yellows = stats_cache[person_id].get("yellows", 0)
+                reds = stats_cache[person_id].get("reds", 0)
 
-        for i, pos in enumerate(player_positions[:needed]):
-            first = iom_first_names[i % len(iom_first_names)]
-            last = iom_last_names[i % len(iom_last_names)]
-            name = f"{first} {last}"
+            # Skip players with too few appearances
+            if apps < 3:
+                continue
 
-            # Estimate stats based on position and team performance
-            if pos == "GK":
-                goals = 0
-                assists = random.randint(0, 1)
-                apps = team_games - random.randint(0, 2)
-                minutes = apps * 90
-            elif pos == "FWD":
-                goals = int(team_goals_scored / max(1, len([p for p in player_positions if p == "FWD"]))) + random.randint(-1, 2)
-                goals = max(0, goals)
-                assists = random.randint(0, 3)
-                apps = team_games - random.randint(0, 3)
-                minutes = apps * random.randint(60, 90)
-            elif pos == "MID":
-                goals = int(team_goals_scored / max(1, len([p for p in player_positions if p in ["MID", "FWD"]]))) + random.randint(-1, 1)
-                goals = max(0, goals)
-                assists = random.randint(0, 4)
-                apps = team_games - random.randint(0, 2)
-                minutes = apps * random.randint(65, 90)
-            else:  # DEF
-                goals = 0 if random.random() > 0.3 else random.randint(0, 2)
-                assists = random.randint(0, 2)
-                apps = team_games - random.randint(0, 2)
-                minutes = apps * random.randint(70, 90)
-
-            price = estimate_price(goals, apps, assists, pos)
+            price = estimate_price(goals, apps, 0, pos)
 
             player = Player(
                 name=name,
-                web_name=f"{last.lower()}_{team.short_name}".replace(" ", "_"),
+                web_name=name.lower().replace(" ", "_").replace("'", ""),
                 team_id=team.id,
                 position=pos,
-                price=price,
-                price_start=price,
-                is_active=True,
-                apps=apps,
                 goals=goals,
-                assists=assists,
-                minutes_played=minutes if 'minutes' in dir() else apps * 90,
+                assists=0,
+                apps=apps,
+                yellow_cards=yellows,
+                red_cards=reds,
+                is_active=True,
+                total_points_season=0,
+                price=price,
             )
             db.add(player)
             total_players += 1
 
     db.flush()
-    print(f"Created {total_players} players")
+    print(f"Created {total_players} real players")
+
+    # ---- Identify and fix Goalkeepers ----
+    print("\n=== Identifying Goalkeepers ===")
+    # Players with 24+ apps, 0 goals, 0 assists are almost certainly GKs
+    gk_candidates = db.query(Player).filter(
+        Player.is_active == True,
+        Player.goals == 0,
+        Player.assists == 0,
+        Player.apps >= 24,
+        Player.position != "GK"
+    ).all()
+
+    # Cross-reference with stats cache for additional GK identification
+    gk_names_from_cache = set()
+    for pid, stats in stats_cache.items():
+        if stats.get("appearances", 0) >= 24 and stats.get("goals", 0) == 0 and stats.get("assists", 0) == 0:
+            gk_names_from_cache.add(stats.get("name", "").lower())
+
+    for p in gk_candidates:
+        if p.name.lower() in gk_names_from_cache:
+            p.position = "GK"
+    db.commit()
+    print(f"Total GKs: {db.query(Player).filter(Player.position == 'GK').count()}")
 
     # ---- Create Sample User ----
     print("\n=== Creating Sample User ===")
@@ -562,49 +595,36 @@ def main():
             user_id=user.id,
             name="Test FC",
             season="2025-26",
-            budget=100.0,
-            budget_remaining=100.0,
+            budget=60.0,
+            budget_remaining=60.0,
             free_transfers=1,
             free_transfers_next_gw=1,
         )
         db.add(ft)
         db.flush()
 
-        # Pick 15 players within budget
+        # Pick 13 players within budget (no position restrictions)
         all_players = db.query(Player).filter(Player.is_active == True).order_by(
             Player.price.desc()
         ).all()
 
-        budget = 100.0
-        position_counts = {"GK": 0, "DEF": 0, "MID": 0, "FWD": 0}
-        position_limits = {"GK": 2, "DEF": 5, "MID": 5, "FWD": 3}
+        budget = 60.0
         squad_players = []
         used_names = set()
 
         # Shuffle and pick unique players (no duplicate names)
         random.shuffle(all_players)
         for player in all_players:
-            if len(squad_players) >= 15:
+            if len(squad_players) >= 13:
                 break
             if player.name in used_names:
                 continue  # Skip duplicate names
             if budget < player.price:
                 continue
-            if position_counts[player.position] >= position_limits[player.position]:
-                continue
 
             budget -= player.price
-            position_counts[player.position] += 1
             used_names.add(player.name)
             squad_players.append(player)
-
-        # Ensure we have at least the minimum for each position
-        if position_counts["GK"] < 1:
-            # Force add a GK
-            gk = db.query(Player).filter(Player.team_id == team_map[list(team_map.keys())[0]].id, Player.position == "GK").first()
-            if gk:
-                budget -= gk.price
-                squad_players.append(gk)
 
         # Assign positions
         slot = 1

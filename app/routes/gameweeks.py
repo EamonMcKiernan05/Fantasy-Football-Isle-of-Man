@@ -14,12 +14,10 @@ from app.models import (
 from app.schemas import GameweekResponse, FixtureResponse
 from app.scoring import (
     calculate_player_points, calculate_gameweek_score,
-    calculate_bps, award_bonus_points,
     calculate_selling_price,
     calculate_free_transfers,
     MAX_ROLLOVER_TRANSFERS,
     FREE_TRANSFER_PER_GW,
-    VALID_FORMATIONS,
     auto_sub_squad,
 )
 
@@ -274,11 +272,10 @@ def close_gameweek(gw_id: int, db: Session = Depends(get_db)):
 def score_gameweek(gw_id: int, db: Session = Depends(get_db)):
     """Score a gameweek - calculate points for all fantasy teams.
 
-    FPL 2025/26 scoring:
+    Scoring:
     - Auto-subs for non-playing starters
     - Captain multiplier (2x, or 3x with triple captain)
-    - Bench boost (all 15 score)
-    - BPS bonus points
+    - Bench boost (all squad score)
     - Transfer hits
     - Chip effects applied
     """
@@ -588,79 +585,6 @@ def _update_rollover_transfers(gw, db):
     db.commit()
 
 
-@router.post("/{gw_id}/bonus")
-def calculate_bonus(gw_id: int, db: Session = Depends(get_db)):
-    """Calculate and award BPS bonus points for a gameweek."""
-    gw = db.query(Gameweek).filter(Gameweek.id == gw_id).first()
-    if not gw:
-        raise HTTPException(status_code=404, detail="Gameweek not found")
-
-    if not gw.closed:
-        raise HTTPException(status_code=400, detail="Gameweek not yet closed")
-
-    # Get all players with GW points
-    player_points = db.query(PlayerGameweekPoints).filter(
-        PlayerGameweekPoints.gameweek_id == gw_id,
-    ).all()
-
-    # Group by fixture and award top 3 per fixture
-    fixtures = db.query(Fixture).filter(Fixture.gameweek_id == gw_id).all()
-    fixture_ids = {f.id for f in fixtures}
-
-    total_bonused = 0
-    for fixture in fixtures:
-        fixture_players = [
-            pp for pp in player_points
-            if pp.opponent_team in (fixture.home_team_name, fixture.away_team_name)
-        ]
-
-        if len(fixture_players) < 3:
-            continue
-
-        # Calculate BPS with defensive contributions (FPL 2025/26)
-        for pp in fixture_players:
-            player = db.query(Player).filter(Player.id == pp.player_id).first()
-            if not player:
-                continue
-
-            pp.bps_score = calculate_bps(
-                position=player.position,
-                goals_scored=pp.goals_scored,
-                assists=pp.assists,
-                clean_sheet=pp.clean_sheet,
-                goals_conceded=pp.goals_conceded,
-                saves=pp.saves,
-                tackles=getattr(pp, 'defensive_contributions', 0) // 3,  # Approximate
-                interceptions=getattr(pp, 'defensive_contributions', 0) // 3,
-                yellow_card=pp.yellow_card,
-                red_card=pp.red_card,
-                own_goal=pp.own_goal,
-                penalties_saved=pp.penalties_saved,
-                penalties_missed=pp.penalties_missed,
-                minutes_played=pp.minutes_played,
-                was_penalty_goal=pp.was_penalty_goal,
-            )
-
-        # Award bonus
-        bps_list = [{"player_id": pp.player_id, "bps": pp.bps_score} for pp in fixture_players]
-        bonus_map = award_bonus_points(bps_list)
-
-        for player_id, bonus in bonus_map.items():
-            pp = next(p for p in fixture_players if p.player_id == player_id)
-            pp.bonus_points = bonus
-            pp.total_points = pp.base_points + bonus
-            total_bonused += 1
-
-    db.commit()
-
-    return {
-        "gameweek": gw.number,
-        "status": "bonus_calculated",
-        "players_bonused": total_bonused,
-        "fixtures_processed": len(fixtures),
-    }
-
-
 @router.post("/simulate-and-score")
 def simulate_and_score(
     gw_id: int,
@@ -678,13 +602,10 @@ def simulate_and_score(
     gw.closed = True
     db.commit()
 
-    # 3. Calculate bonus
-    calculate_bonus(gw_id, db)
-
-    # 4. Score
+    # 3. Score
     score_result = score_gameweek(gw_id, db)
 
-    # 5. Calculate Dream Team
+    # 4. Calculate Dream Team
     calculate_dream_team(gw_id, db)
 
     return score_result
@@ -738,11 +659,8 @@ def get_dream_team(gw_id: int, db: Session = Depends(get_db)):
 def calculate_dream_team(gw_id: int, db: Session) -> dict:
     """Calculate the Dream Team for a gameweek.
 
-    FPL Dream Team rules:
-    - Best 11 players by total points
-    - Formation: 1 GK + 3-5 DEF + 3-5 MID + at least 1 FWD
-    - Must have valid formation (GK + 10 outfield = 11)
-    - Ties broken by BPS, then ICT index
+    Simply the top 10 players by total points this gameweek.
+    No position restrictions.
     """
     gw = db.query(Gameweek).filter(Gameweek.id == gw_id).first()
     if not gw:
@@ -763,98 +681,44 @@ def calculate_dream_team(gw_id: int, db: Session) -> dict:
     player_ids = [pp.player_id for pp in player_points]
     players = {p.id: p for p in db.query(Player).filter(Player.id.in_(player_ids)).all()}
 
-    # Group by position
-    gk_players = []
-    def_players = []
-    mid_players = []
-    fwd_players = []
-
+    # Build list of active players with their points
+    candidates = []
     for pp in player_points:
         player = players.get(pp.player_id)
         if not player or not player.is_active:
             continue
-
-        entry = {
+        candidates.append({
             "player_id": pp.player_id,
             "player": player,
             "points": pp.total_points,
-            "bps": pp.bps_score,
-            "ict": (pp.influence_gw + pp.creativity_gw + pp.threat_gw) / 10,
-        }
+        })
 
-        if player.position == "GK":
-            gk_players.append(entry)
-        elif player.position == "DEF":
-            def_players.append(entry)
-        elif player.position == "MID":
-            mid_players.append(entry)
-        elif player.position == "FWD":
-            fwd_players.append(entry)
+    # Sort by points desc, take top 10
+    candidates.sort(key=lambda x: x["points"], reverse=True)
+    top_10 = candidates[:10]
 
-    # Sort each position by points desc, then BPS, then ICT
-    for lst in [gk_players, def_players, mid_players, fwd_players]:
-        lst.sort(key=lambda x: (x["points"], x["bps"], x["ict"]), reverse=True)
+    if not top_10:
+        return {"status": "error", "message": "No players available for Dream Team"}
 
-    # Select best 11 in valid formation
-    # Strategy: Try different DEF/MID splits to maximize total points
-    best_dream_team = None
-    best_total = -1
-
-    # Must have at least 1 FWD
-    if not fwd_players:
-        return {"status": "error", "message": "No forwards available for Dream Team"}
-
-    for num_def in range(3, 6):  # 3-5 DEF
-        num_mid = 10 - num_def  # Remaining outfield spots (must have at least 1 FWD)
-
-        # Calculate max forwards we can pick
-        max_fwd = num_mid
-        num_mid_actual = num_mid
-
-        # Try different FWD counts (at least 1, up to the remaining outfield spots)
-        for num_fwd in range(1, min(max_fwd + 1, 4)):  # At most 3 FWD for formation balance
-            num_mid_for_this = 10 - num_def - num_fwd
-            if num_mid_for_this < 1:
-                continue
-
-            # Check we have enough players
-            if (len(gk_players) < 1 or len(def_players) < num_def or
-                    len(mid_players) < num_mid_for_this or len(fwd_players) < num_fwd):
-                continue
-
-            # Select players
-            selected = []
-            selected.extend(gk_players[:1])
-            selected.extend(def_players[:num_def])
-            selected.extend(mid_players[:num_mid_for_this])
-            selected.extend(fwd_players[:num_fwd])
-
-            total = sum(p["points"] for p in selected)
-            if total > best_total:
-                best_total = total
-                best_dream_team = selected
-
-    if not best_dream_team:
-        return {"status": "error", "message": "Could not form valid Dream Team"}
+    total = sum(p["points"] for p in top_10)
 
     # Create Dream Team record
     dream_team = DreamTeam(
         gameweek_id=gw_id,
         season=gw.season,
-        total_points=best_total,
+        total_points=total,
     )
     db.add(dream_team)
     db.flush()
 
     # Create Dream Team members
-    formation_positions = [1] + list(range(2, 7)) + list(range(7, 12))  # GK + 10 outfield
-    for i, entry in enumerate(best_dream_team):
+    for i, entry in enumerate(top_10):
         member = DreamTeamPlayer(
             dream_team_id=dream_team.id,
             player_id=entry["player_id"],
-            position=entry["player"].position,
+            position=entry["player"].position,  # Keep for display only
             points=entry["points"],
-            formation_position=formation_positions[i] if i < len(formation_positions) else i + 1,
+            formation_position=i + 1,
         )
         db.add(member)
 
@@ -866,6 +730,6 @@ def calculate_dream_team(gw_id: int, db: Session) -> dict:
     return {
         "status": "calculated",
         "dream_team_id": dream_team.id,
-        "total_points": best_total,
-        "players_selected": len(best_dream_team),
+        "total_points": total,
+        "players_selected": len(top_10),
     }

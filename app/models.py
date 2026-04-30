@@ -1,19 +1,21 @@
 """SQLAlchemy models for Fantasy Football Isle of Man.
 
 Player-based FPL system - each manager picks individual players from IOM leagues.
-Matches FPL 2025/26 rules as closely as possible.
 
-FPL 2025/26 Key Rules:
-- Squad: 15 players (2 GK, 5 DEF, 5 MID, 3 FWD), £100m budget
+Key Rules:
+- Squad: 13 players, £60m budget, no position restrictions
+- 10 starting players, 3 subs
 - Max 3 players per club
 - 1 free transfer per GW, rollover max 4 (max 5 total with current GW)
 - Max 20 transfers per GW (excluding chips)
-- Wildcard: 2x/season (GW 1-19 and GW 20-38)
-- Free Hit: 2x/season (GW 1-19 and GW 20-38)
-- Bench Boost: 2x/season (GW 1-19 and GW 20-38)
-- Triple Captain: 2x/season (GW 1-19 and GW 20-38)
+- Wildcard: 2x/season (GW 1-11 and GW 12-24)
+- Free Hit: 2x/season (GW 1-11 and GW 12-24)
+- Bench Boost: 2x/season (GW 1-11 and GW 12-24)
+- Triple Captain: 2x/season (GW 1-11 and GW 12-24)
 - Player price: +£0.1m per 50% ownership increase, -£0.1m per 50% decrease
 - Half-increase rule: selling price = purchase_price + floor((current_price - purchase_price) / 2)
+- 24 gameweeks per season
+- Simplified scoring: goals, appearances, minutes, clean sheets, cards, own goals
 """
 from sqlalchemy import (
     Column, Integer, String, Float, Boolean, ForeignKey,
@@ -91,8 +93,8 @@ class Player(Base):
     team_id = Column(Integer, ForeignKey("teams.id"), nullable=False)
     team = relationship("Team", back_populates="players")
 
-    # FPL-style position: GK, DEF, MID, FWD
-    position = Column(String(3), nullable=False, index=True)
+    # Position: kept for reference but no longer enforced (players can play any position)
+    position = Column(String(3), nullable=True, index=True, default=None)
 
     # FPL-style price in millions (e.g. 5.0 = 5.0m, increments of 0.1m)
     price = Column(Float, default=5.0, nullable=False)
@@ -146,9 +148,7 @@ class Player(Base):
     squad_entries = relationship("SquadPlayer", back_populates="player")
     price_history = relationship("PlayerPriceHistory", back_populates="player")
 
-    __table_args__ = (
-        CheckConstraint("position IN ('GK', 'DEF', 'MID', 'FWD')", name="chk_position"),
-    )
+    __table_args__ = ()
 
 
 class Gameweek(Base):
@@ -230,13 +230,14 @@ class User(Base):
 class FantasyTeam(Base):
     """A user's fantasy team (squad of individual players).
 
-    FPL 2025/26 rules:
-    - 15 players max, £100m budget
-    - 1 free transfer per GW, rollover max 4 (max 5 total)
-    - 2 wildcards per season (GW 1-19 and GW 20-38)
-    - 2 free hits per season (GW 1-19 and GW 20-38)
-    - 2 bench boosts per season (GW 1-19 and GW 20-38)
-    - 2 triple captains per season (GW 1-19 and GW 20-38)
+    Rules:
+    - 13 players max, £60m budget, no position restrictions
+    - 10 starting players, 3 subs
+    - 1 free transfer per GW, rollover max 4 (5 total)
+    - 2 wildcards per season (GW 1-11 and GW 12-24)
+    - 2 free hits per season (GW 1-11 and GW 12-24)
+    - 2 bench boosts per season (GW 1-11 and GW 12-24)
+    - 2 triple captains per season (GW 1-11 and GW 12-24)
     - Max 20 transfers per GW (excluding chips)
     """
     __tablename__ = "fantasy_teams"
@@ -248,9 +249,9 @@ class FantasyTeam(Base):
     name = Column(String(100), nullable=False)
     season = Column(String(20), nullable=False)
 
-    # FPL-style budget (100.0m total)
-    budget = Column(Float, default=100.0)
-    budget_remaining = Column(Float, default=100.0)
+    # Budget (£60m total)
+    budget = Column(Float, default=60.0)
+    budget_remaining = Column(Float, default=60.0)
 
     total_points = Column(Integer, default=0)
     overall_rank = Column(Integer, nullable=True)
@@ -263,22 +264,11 @@ class FantasyTeam(Base):
     transfer_deadline_exceeded = Column(Boolean, default=False)
     rollover_transfers = Column(Integer, default=0)  # Rolled over from previous GW
 
-    # FPL 2025/26: ALL chips are 2x per season (1 per half)
-    # Wildcard: 2 per season (first half GW 1-19, second half GW 20-38)
-    wildcard_first_half = Column(Boolean, default=False)
-    wildcard_second_half = Column(Boolean, default=False)
-
-    # Free Hit: 2 per season (first half GW 1-19, second half GW 20-38)
-    free_hit_first_half = Column(Boolean, default=False)
-    free_hit_second_half = Column(Boolean, default=False)
-
-    # Bench Boost: 2 per season (first half GW 1-19, second half GW 20-38)
-    bench_boost_first_half = Column(Boolean, default=False)
-    bench_boost_second_half = Column(Boolean, default=False)
-
-    # Triple Captain: 2 per season (first half GW 1-19, second half GW 20-38)
-    triple_captain_first_half = Column(Boolean, default=False)
-    triple_captain_second_half = Column(Boolean, default=False)
+    # Chips: 1 per season each
+    wildcard_used = Column(Boolean, default=False)
+    free_hit_used = Column(Boolean, default=False)
+    bench_boost_used = Column(Boolean, default=False)
+    triple_captain_used = Column(Boolean, default=False)
 
     # Active chip this gameweek (can be cancelled before deadline)
     active_chip = Column(String(20), nullable=True)
@@ -315,8 +305,8 @@ class SquadPlayer(Base):
     player_id = Column(Integer, ForeignKey("players.id"), nullable=False)
     player = relationship("Player", back_populates="squad_entries")
 
-    # Position slot: 1=GK(start), 2-6=DEF(start), 7-11=MID(start), 12-14=FWD(start)
-    # 15=GK(bench), 16-17=DEF(bench), 18-19=MID(bench), 20=FWD(bench)
+    # Position slot: 1-10 = starting XI, 11-13 = bench
+    # No position restrictions - any player can play anywhere
     position_slot = Column(Integer, nullable=False)
 
     is_captain = Column(Boolean, default=False)
@@ -343,7 +333,7 @@ class SquadPlayer(Base):
 
     __table_args__ = (
         UniqueConstraint("fantasy_team_id", "player_id", name="uq_team_player"),
-        CheckConstraint("position_slot BETWEEN 1 AND 20", name="chk_position_slot"),
+        CheckConstraint("position_slot BETWEEN 1 AND 13", name="chk_position_slot"),
     )
 
 
@@ -497,9 +487,9 @@ class Season(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(20), unique=True, nullable=False)  # e.g., "2025-26"
-    total_gameweeks = Column(Integer, default=38)
-    first_half_cutoff = Column(Integer, default=19)  # Wildcard phase boundary
-    second_half_cutoff = Column(Integer, default=20)
+    total_gameweeks = Column(Integer, default=24)
+    first_half_cutoff = Column(Integer, default=11)  # Wildcard phase boundary
+    second_half_cutoff = Column(Integer, default=12)
 
     started = Column(Boolean, default=False)
     finished = Column(Boolean, default=False)
@@ -650,8 +640,9 @@ class GameweekStats(Base):
 class DreamTeam(Base):
     """FPL Dream Team for a gameweek.
 
-    The Dream Team is the best-performing formation of 11 players
+    The Dream Team is the best-performing formation of 10 players
     across all fixtures in a gameweek, selected by total points.
+    No position restrictions.
     """
     __tablename__ = "dream_teams"
 
@@ -659,7 +650,7 @@ class DreamTeam(Base):
     gameweek_id = Column(Integer, ForeignKey("gameweeks.id"), nullable=False, unique=True)
     gameweek = relationship("Gameweek")
     season = Column(String(20), nullable=False)
-    total_points = Column(Integer, default=0)  # Combined points of all 11 players
+    total_points = Column(Integer, default=0)  # Combined points of all 10 players
     selected_at = Column(DateTime, default=datetime.utcnow)
 
     members = relationship("DreamTeamPlayer", back_populates="dream_team")
@@ -676,6 +667,6 @@ class DreamTeamPlayer(Base):
     player_id = Column(Integer, ForeignKey("players.id"), nullable=False)
     player = relationship("Player")
 
-    position = Column(String(3), nullable=False)  # GK, DEF, MID, FWD
+    position = Column(String(3), nullable=True)  # Reference only, no restrictions
     points = Column(Integer, default=0)
-    formation_position = Column(Integer, nullable=False)  # 1-11 for formation display
+    formation_position = Column(Integer, nullable=False)  # 1-10 for formation display

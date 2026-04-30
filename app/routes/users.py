@@ -15,7 +15,7 @@ from app.schemas import (
 )
 from app.scoring import (
     get_chip_status, activate_chip, cancel_chip, calculate_selling_price,
-    VALID_FORMATIONS, auto_sub_squad, check_chip_availability,
+    auto_sub_squad, check_chip_availability,
 )
 from app.utils.passwords import hash_password, verify_password
 from app.utils.squad import create_default_squad
@@ -148,24 +148,15 @@ def get_team_chips(team_id: int, db: Session = Depends(get_db)):
     if not ft:
         raise HTTPException(status_code=404, detail="Fantasy team not found")
 
-    current_gw = db.query(Gameweek).filter(
-        Gameweek.closed == False
-    ).order_by(Gameweek.number.desc()).first()
-    gw_num = current_gw.number if current_gw else 1
-    current_half = "first" if gw_num <= 19 else "second"
-
     types = ["wildcard", "free_hit", "bench_boost", "triple_captain"]
     out = []
     for t in types:
-        first = getattr(ft, f"{t}_first_half", False)
-        second = getattr(ft, f"{t}_second_half", False)
+        used = getattr(ft, f"{t}_used", False)
         out.append({
             "type": t,
-            "first_half_used": first,
-            "second_half_used": second,
+            "used": used,
             "active": ft.active_chip == t,
-            "current_half": current_half,
-            "available": (not first) if current_half == "first" else (not second),
+            "available": not used,
         })
     return out
 
@@ -267,7 +258,7 @@ def set_vice_captain_by_squad(team_id: int, squad_id: int, db: Session = Depends
 
 @router.post("/{team_id}/squad/{squad_id}/bench")
 def bench_squad_player(team_id: int, squad_id: int, db: Session = Depends(get_db)):
-    """Move a player to the bench, swapping with a valid bench player."""
+    """Move a player to the bench, swapping with the highest-priority bench player."""
     ft = _resolve_team(db, team_id)
     if not ft:
         raise HTTPException(status_code=404, detail="Fantasy team not found")
@@ -283,30 +274,16 @@ def bench_squad_player(team_id: int, squad_id: int, db: Session = Depends(get_db
 
     squad = db.query(SquadPlayer).filter(SquadPlayer.fantasy_team_id == ft.id).all()
 
-    # Pick a bench player who can fill this position.
+    # Pick the highest-priority bench player (any position)
     bench = sorted(
         [b for b in squad if not b.is_starting],
         key=lambda b: b.bench_priority or 99,
     )
 
-    pos = sp.player.position
-    candidate = None
-    for b in bench:
-        if pos == "GK" and b.player.position == "GK":
-            candidate = b
-            break
-        if pos != "GK" and b.player.position != "GK":
-            # Validate resulting formation has at least 3 DEF and 1 FWD.
-            new_starters = [s for s in squad if s.is_starting and s.id != sp.id] + [b]
-            counts = {"GK": 0, "DEF": 0, "MID": 0, "FWD": 0}
-            for s in new_starters:
-                counts[s.player.position] += 1
-            if counts["DEF"] >= 3 and counts["FWD"] >= 1 and counts["MID"] >= 2 and counts["GK"] == 1:
-                candidate = b
-                break
+    if not bench:
+        raise HTTPException(status_code=400, detail="No bench players available")
 
-    if not candidate:
-        raise HTTPException(status_code=400, detail="No valid bench swap available for that position")
+    candidate = bench[0]
 
     sp.is_starting = False
     candidate.is_starting = True
@@ -322,7 +299,7 @@ def bench_squad_player(team_id: int, squad_id: int, db: Session = Depends(get_db
 
 @router.post("/{team_id}/squad/{squad_id}/start")
 def start_squad_player(team_id: int, squad_id: int, db: Session = Depends(get_db)):
-    """Promote a benched player to start, swapping with a starter at the same position group."""
+    """Promote a benched player to start, swapping with the lowest-scoring starter."""
     ft = _resolve_team(db, team_id)
     if not ft:
         raise HTTPException(status_code=404, detail="Fantasy team not found")
@@ -339,26 +316,11 @@ def start_squad_player(team_id: int, squad_id: int, db: Session = Depends(get_db
     squad = db.query(SquadPlayer).filter(SquadPlayer.fantasy_team_id == ft.id).all()
     starters = [s for s in squad if s.is_starting]
 
-    pos = sp.player.position
-    # Find a starter to drop. For GK, drop the GK starter. For others, drop a starter
-    # that keeps the formation valid (at least 3 DEF, 1 FWD, 2 MID).
-    candidate = None
-    if pos == "GK":
-        candidate = next((s for s in starters if s.player.position == "GK"), None)
-    else:
-        for s in sorted(starters, key=lambda s: s.gw_points or 0):
-            if s.player.position == "GK":
-                continue
-            new_starters = [x for x in starters if x.id != s.id] + [sp]
-            counts = {"GK": 0, "DEF": 0, "MID": 0, "FWD": 0}
-            for x in new_starters:
-                counts[x.player.position] += 1
-            if counts["DEF"] >= 3 and counts["FWD"] >= 1 and counts["MID"] >= 2 and counts["GK"] == 1:
-                candidate = s
-                break
+    if not starters:
+        raise HTTPException(status_code=400, detail="No starters to swap with")
 
-    if not candidate:
-        raise HTTPException(status_code=400, detail="No valid starter to swap out")
+    # Drop the lowest-scoring starter (any position)
+    candidate = min(starters, key=lambda s: s.gw_points or 0)
 
     sp.is_starting = True
     candidate.is_starting = False
@@ -399,8 +361,8 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
         user_id=new_user.id,
         name=team_name,
         season="2025-26",
-        budget=100.0,
-        budget_remaining=100.0,
+        budget=60.0,
+        budget_remaining=60.0,
         free_transfers=1,
         free_transfers_next_gw=1,
     )
@@ -537,8 +499,8 @@ def create_fantasy_team(
         user_id=user_id,
         name=team_name,
         season="2025-26",
-        budget=100.0,
-        budget_remaining=100.0,
+        budget=60.0,
+        budget_remaining=60.0,
         free_transfers=1,
         free_transfers_next_gw=1,
     )
@@ -693,84 +655,31 @@ def set_captain(user_id: int, request: CaptainRequest, db: Session = Depends(get
 
 @router.put("/{user_id}/team/formation")
 def set_formation(user_id: int, formation: str, db: Session = Depends(get_db)):
-    """Set team formation and update starting players.
+    """Set starting 10 (no formation validation - any player in any position).
 
-    FPL valid formations:
-    3-4-3, 3-5-2, 4-3-3, 4-4-2, 4-5-1, 5-3-2, 5-4-1
+    Accepts any formation string but just sets first 10 squad players as starters.
     """
     ft = db.query(FantasyTeam).filter(FantasyTeam.user_id == user_id).first()
     if not ft:
         raise HTTPException(status_code=404, detail="Fantasy team not found")
 
-    # Validate formation
-    formation_config = None
-    for f in VALID_FORMATIONS:
-        if f["name"] == formation:
-            formation_config = f
-            break
-
-    if not formation_config:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid formation. Valid: {[f['name'] for f in VALID_FORMATIONS]}",
-        )
-
-    # Validate squad has enough players of each position
-    squad = db.query(SquadPlayer).filter(SquadPlayer.fantasy_team_id == ft.id).all()
-    positions = {}
-    for sp in squad:
-        pos = sp.player.position
-        positions[pos] = positions.get(pos, 0) + 1
-
-    required_def = formation_config["def"]
-    required_mid = formation_config["mid"]
-    required_fwd = formation_config["fwd"]
-
-    if positions.get("DEF", 0) < required_def:
-        raise HTTPException(status_code=400, detail=f"Need {required_def} defenders")
-    if positions.get("MID", 0) < required_mid:
-        raise HTTPException(status_code=400, detail=f"Need {required_mid} midfielders")
-    if positions.get("FWD", 0) < required_fwd:
-        raise HTTPException(status_code=400, detail=f"Need {required_fwd} forwards")
-
-    # Set starting XI based on formation
     # Reset all starting flags
+    squad = db.query(SquadPlayer).filter(SquadPlayer.fantasy_team_id == ft.id).all()
     for sp in squad:
         sp.is_starting = False
 
-    # Select starting XI
-    starting_count = 0
-    # GK: 1
-    gks = [sp for sp in squad if sp.player.position == "GK"]
-    if gks:
-        gks[0].is_starting = True
-        starting_count += 1
-
-    # DEF
-    defs = [sp for sp in squad if sp.player.position == "DEF"]
-    for sp in defs[:required_def]:
+    # Sort by bench_priority, set first 10 as starters
+    sorted_squad = sorted(squad, key=lambda sp: sp.bench_priority or 99)
+    for sp in sorted_squad[:10]:
         sp.is_starting = True
-        starting_count += 1
-
-    # MID
-    mids = [sp for sp in squad if sp.player.position == "MID"]
-    for sp in mids[:required_mid]:
-        sp.is_starting = True
-        starting_count += 1
-
-    # FWD
-    fwds = [sp for sp in squad if sp.player.position == "FWD"]
-    for sp in fwds[:required_fwd]:
-        sp.is_starting = True
-        starting_count += 1
 
     db.commit()
 
     return {
         "status": "updated",
         "formation": formation,
-        "starting_count": starting_count,
-        "message": f"Formation set to {formation}. {15 - starting_count} players on bench.",
+        "starting_count": 10,
+        "message": "Starting 10 set.",
     }
 
 

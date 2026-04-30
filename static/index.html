@@ -80,20 +80,11 @@
                 </div>
             </div>
             <div class="chip-status-bar" id="chip-status-bar"></div>
-            <div class="formation-bar">
-                <label>Formation:</label>
-                <select id="formation-select" onchange="changeFormation()">
-                    <option value="3-4-3">3-4-3</option>
-                    <option value="3-5-2">3-5-2</option>
-                    <option value="4-3-3">4-3-3</option>
-                    <option value="4-4-2">4-4-2</option>
-                    <option value="4-5-1">4-5-1</option>
-                    <option value="5-3-2">5-3-2</option>
-                    <option value="5-4-1">5-4-1</option>
-                </select>
-            </div>
             <div class="pitch-wrapper">
                 <div class="pitch" id="pitch">
+                    <div class="penalty-area-top"></div>
+                    <div class="penalty-area-bottom"></div>
+                    <div class="center-spot"></div>
                     <div id="pitch-players"></div>
                 </div>
             </div>
@@ -241,6 +232,9 @@
                 </select>
             </div>
             <div id="dream-team-pitch" class="pitch dream-team-pitch">
+                <div class="penalty-area-top"></div>
+                <div class="penalty-area-bottom"></div>
+                <div class="center-spot"></div>
                 <div id="dream-team-players" class="pitch-players"></div>
             </div>
             <div id="dream-team-total" class="dream-team-total"></div>
@@ -262,10 +256,10 @@
             <div class="help-section">
                 <h3>Squad Rules</h3>
                 <ul>
-                    <li>15 players: 2 GK, 5 DEF, 5 MID, 3 FWD</li>
-                    <li>£100 million budget cap</li>
+                    <li>£60 million budget cap</li>
+                    <li>13 players total: 10 starters + 3 bench</li>
+                    <li>No position restrictions — any player can play anywhere</li>
                     <li>Maximum 3 players from any single club</li>
-                    <li>Starting XI: 1 GK, 3-5 DEF, 1-5 MID, 1-3 FWD</li>
                 </ul>
             </div>
 
@@ -279,38 +273,26 @@
                         <tbody>
                             <tr><td>Playing up to 60 minutes</td><td>+1</td></tr>
                             <tr><td>Playing 60 minutes or more</td><td>+2</td></tr>
-                            <tr><td>Goal by goalkeeper</td><td>+10</td></tr>
-                            <tr><td>Goal by defender</td><td>+6</td></tr>
-                            <tr><td>Goal by midfielder</td><td>+5</td></tr>
-                            <tr><td>Goal by forward</td><td>+4</td></tr>
-                            <tr><td>Assist for a goal</td><td>+3</td></tr>
-                            <tr><td>Clean sheet (GK/DEF)</td><td>+4</td></tr>
-                            <tr><td>Clean sheet (MID)</td><td>+1</td></tr>
-                            <tr><td>Every 3 saves (GK)</td><td>+1</td></tr>
-                            <tr><td>Penalty save (GK)</td><td>+5</td></tr>
-                            <tr><td>10 defensive contributions (DEF)</td><td>+2</td></tr>
-                            <tr><td>12 defensive contributions (MID/FWD)</td><td>+2</td></tr>
-                            <tr><td>Penalty miss</td><td>-2</td></tr>
+                            <tr><td>Goal</td><td>+4</td></tr>
+                            <tr><td>Clean sheet</td><td>+4</td></tr>
                             <tr><td>Yellow card</td><td>-1</td></tr>
                             <tr><td>Red card</td><td>-3</td></tr>
-                            <tr><td>Own goal</td><td>-2</td></tr>
-                            <tr><td>Every 2 goals conceded (GK/DEF)</td><td>-1</td></tr>
-                            <tr><td>Bonus points</td><td>1-3</td></tr>
+                            <tr><td>Own goal</td><td>-1</td></tr>
                         </tbody>
                     </table>
                 </div>
             </div>
 
             <div class="help-section">
-                <h3>Chips (2x per season each)</h3>
+                <h3>Chips (1x per season each)</h3>
                 <div class="chips-help">
                     <div class="chip-help-card">
                         <h4>Wildcard</h4>
-                        <p>Unlimited permanent transfers at no cost. One for each half of the season.</p>
+                        <p>Unlimited permanent transfers at no cost. Once per season.</p>
                     </div>
                     <div class="chip-help-card">
                         <h4>Free Hit</h4>
-                        <p>One-off squad change that reverts next gameweek. One for each half of the season.</p>
+                        <p>One-off squad change that reverts next gameweek. Once per season.</p>
                     </div>
                     <div class="chip-help-card">
                         <h4>Bench Boost</h4>
@@ -369,8 +351,8 @@
     <div class="toast-container" id="toast-container"></div>
 
     <!-- Modals -->
-    <div id="modal-overlay" class="modal-overlay" onclick="closeModal()"></div>
-    <div id="modal-content" class="modal-content"></div>
+    <div id="modal-overlay" class="modal-overlay"></div>
+    <div id="modal-content" class="modal-content" onclick="event.stopPropagation()"></div>
 
     <script src="/static/js/app.js?v=3"></script>
 </body>
