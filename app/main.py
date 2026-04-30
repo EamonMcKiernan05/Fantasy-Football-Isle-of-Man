@@ -78,33 +78,142 @@ app.include_router(h2h_bracket.router)
 async def get_dream_team_endpoint(gw_id: int, db: Session = Depends(get_db)):
     """Standalone Dream Team endpoint for the frontend.
 
-    Returns: {"players": [...], "total_points": N}
+    If a stored DreamTeam exists for the GW, returns it. Otherwise, computes
+    a best-XI on the fly from PlayerGameweekPoints in a 4-4-2 formation
+    (1 GK, 4 DEF, 4 MID, 2 FWD = 11 players) so the page is never empty
+    once GWs have stats.
+
+    Returns: {"players": [...], "total_points": N, "captain": {...}}
     """
-    from app.models import DreamTeam, DreamTeamPlayer
+    from app.models import (
+        DreamTeam, DreamTeamPlayer, PlayerGameweekPoints, Player, Gameweek,
+    )
+
+    gw = db.query(Gameweek).filter(Gameweek.id == gw_id).first()
+    if not gw:
+        return {"players": [], "total_points": 0, "message": "Gameweek not found"}
 
     dream_team = db.query(DreamTeam).filter(DreamTeam.gameweek_id == gw_id).first()
+    if dream_team:
+        members = db.query(DreamTeamPlayer).filter(
+            DreamTeamPlayer.dream_team_id == dream_team.id
+        ).all()
+        captain = max(members, key=lambda m: m.points) if members else None
+        return {
+            "gameweek": gw.number,
+            "players": [
+                {
+                    "player_id": m.player_id,
+                    "name": m.player.name if m.player else "Unknown",
+                    "team_name": m.player.team.name if m.player and m.player.team else "",
+                    "position": m.position,
+                    "points": m.points,
+                    "cost": m.player.price if m.player else 0,
+                    "formation_position": m.formation_position,
+                    "is_captain": captain is not None and m.id == captain.id,
+                }
+                for m in sorted(members, key=lambda x: x.formation_position)
+            ],
+            "total_points": dream_team.total_points,
+        }
 
-    if not dream_team:
-        return {"players": [], "total_points": 0, "message": "Dream Team not yet calculated"}
+    # Compute on the fly: top 1 GK, top 4 DEF, top 4 MID, top 2 FWD
+    rows = (
+        db.query(PlayerGameweekPoints, Player)
+        .join(Player, Player.id == PlayerGameweekPoints.player_id)
+        .filter(PlayerGameweekPoints.gameweek_id == gw_id)
+        .all()
+    )
+    if not rows:
+        return {"players": [], "total_points": 0, "message": "No stats yet for this gameweek"}
 
-    members = db.query(DreamTeamPlayer).filter(
-        DreamTeamPlayer.dream_team_id == dream_team.id
-    ).all()
+    by_pos = {"GK": [], "DEF": [], "MID": [], "FWD": []}
+    for pgp, p in rows:
+        if p.position in by_pos:
+            by_pos[p.position].append((pgp.total_points or 0, p))
+
+    for pos in by_pos:
+        by_pos[pos].sort(key=lambda r: r[0], reverse=True)
+
+    selection = []
+    selection += [(p, "GK", pts) for pts, p in by_pos["GK"][:1]]
+    selection += [(p, "DEF", pts) for pts, p in by_pos["DEF"][:4]]
+    selection += [(p, "MID", pts) for pts, p in by_pos["MID"][:4]]
+    selection += [(p, "FWD", pts) for pts, p in by_pos["FWD"][:2]]
+
+    if not selection:
+        return {"players": [], "total_points": 0}
+
+    captain_idx = max(range(len(selection)), key=lambda i: selection[i][2])
+    formation_pos = 1
+    out_players = []
+    for idx, (p, pos, pts) in enumerate(selection):
+        out_players.append({
+            "player_id": p.id,
+            "name": p.name,
+            "team_name": p.team.name if p.team else "",
+            "position": pos,
+            "points": pts,
+            "cost": p.price,
+            "formation_position": formation_pos,
+            "is_captain": idx == captain_idx,
+        })
+        formation_pos += 1
 
     return {
-        "players": [
+        "gameweek": gw.number,
+        "players": out_players,
+        "total_points": sum(p["points"] for p in out_players),
+    }
+
+
+@app.get("/api/stats/gameweek/{gw_id}")
+async def get_gw_stats(gw_id: int, db: Session = Depends(get_db)):
+    """Per-gameweek summary stats: average score, highest score, top players."""
+    from app.models import (
+        FantasyTeamHistory, Gameweek, PlayerGameweekPoints, Player,
+    )
+    gw = db.query(Gameweek).filter(Gameweek.id == gw_id).first()
+    if not gw:
+        return {"error": "gameweek not found"}
+
+    histories = db.query(FantasyTeamHistory).filter(
+        FantasyTeamHistory.gameweek_id == gw_id
+    ).all()
+    avg = round(sum(h.points for h in histories) / len(histories), 1) if histories else 0
+    high = max((h.points for h in histories), default=0)
+
+    # Top 5 player performers
+    rows = (
+        db.query(PlayerGameweekPoints, Player)
+        .join(Player, Player.id == PlayerGameweekPoints.player_id)
+        .filter(PlayerGameweekPoints.gameweek_id == gw_id)
+        .order_by(PlayerGameweekPoints.total_points.desc())
+        .limit(5)
+        .all()
+    )
+
+    return {
+        "gameweek_id": gw_id,
+        "gameweek_number": gw.number,
+        "deadline": gw.deadline.isoformat() if gw.deadline else None,
+        "closed": gw.closed,
+        "scored": gw.scored,
+        "average_score": avg,
+        "highest_score": high,
+        "managers_played": len(histories),
+        "top_players": [
             {
-                "player_id": m.player_id,
-                "name": m.player.name if m.player else "Unknown",
-                "team_name": m.player.team.name if m.player and m.player.team else "",
-                "position": m.position,
-                "points": m.points,
-                "cost": m.player.price if m.player else 0,
-                "formation_position": m.formation_position,
+                "player_id": p.id,
+                "name": p.name,
+                "team_name": p.team.name if p.team else "",
+                "position": p.position,
+                "points": pgp.total_points or 0,
+                "goals": pgp.goals_scored or 0,
+                "assists": pgp.assists or 0,
             }
-            for m in sorted(members, key=lambda x: x.formation_position)
+            for pgp, p in rows
         ],
-        "total_points": dream_team.total_points,
     }
 
 

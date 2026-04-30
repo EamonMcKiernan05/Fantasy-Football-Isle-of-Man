@@ -9,6 +9,7 @@ class UserCreate(BaseModel):
     username: str = Field(..., min_length=3, max_length=100)
     email: str = Field(..., max_length=200)
     password: str = Field(..., min_length=6)
+    team_name: Optional[str] = None
 
 
 class UserResponse(BaseModel):

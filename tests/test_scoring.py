@@ -687,8 +687,9 @@ class TestAPIEndpoints:
         })
         assert response.status_code == 200
         data = response.json()
-        assert data["username"] == "testuser"
-        assert "id" in data
+        assert data["user"]["username"] == "testuser"
+        assert "access_token" in data
+        assert data["team"]["name"]
 
     def test_register_duplicate_username(self, client):
         client.post("/api/users/register", json={
@@ -714,7 +715,7 @@ class TestAPIEndpoints:
             "password": "pass123",
         })
         assert response.status_code == 200
-        assert response.json()["username"] == "testuser"
+        assert response.json()["user"]["username"] == "testuser"
 
     def test_leaderboard_empty(self, client):
         response = client.get("/api/leaderboard/")
@@ -724,7 +725,7 @@ class TestAPIEndpoints:
     def test_gameweeks_empty(self, client):
         response = client.get("/api/gameweeks/")
         assert response.status_code == 200
-        assert isinstance(response.json(), list)
+        assert response.json()["gameweeks"] == []
 
     def test_players_empty(self, client):
         response = client.get("/api/players/")
@@ -742,12 +743,11 @@ class TestAPIEndpoints:
             "email": "admin@test.com",
             "password": "testpass123",
         })
-        user_id = user_resp.json()["id"]
+        user_id = user_resp.json()["user"]["id"]
 
-        # Create fantasy team directly in DB (skip player selection for test)
-        ft = FantasyTeam(user_id=user_id, name="Test FC", season="2025-26")
-        db.add(ft)
-        db.commit()
+        # Register auto-creates a fantasy team, so just look it up
+        ft = db.query(FantasyTeam).filter(FantasyTeam.user_id == user_id).first()
+        assert ft is not None
 
         # Create league
         import time

@@ -48,13 +48,32 @@ def get_current_user(
         raise HTTPException(status_code=404, detail="User not found")
     
     ft = db.query(FantasyTeam).filter(FantasyTeam.user_id == user_id).first()
-    
+
     team_data = None
     if ft:
-        ft_dict = ft.__dict__.copy()
-        ft_dict.pop('_sa_instance_state', None)
-        team_data = ft_dict
-    
+        current_gw = db.query(Gameweek).filter(
+            Gameweek.closed == False
+        ).order_by(Gameweek.number.desc()).first()
+        team_data = {
+            "id": ft.id,
+            "user_id": ft.user_id,
+            "name": ft.name,
+            "season": ft.season,
+            "budget": ft.budget,
+            "budget_remaining": ft.budget_remaining,
+            "total_points": ft.total_points,
+            "overall_rank": ft.overall_rank,
+            "league_rank": ft.league_rank,
+            "free_transfers": ft.free_transfers,
+            "free_transfers_next_gw": ft.free_transfers_next_gw,
+            "current_gw_transfers": ft.current_gw_transfers,
+            "transfer_deadline_exceeded": ft.transfer_deadline_exceeded,
+            "active_chip": ft.active_chip,
+            "supported_club_id": ft.supported_club_id,
+            "supported_club_name": ft.supported_club.name if ft.supported_club else None,
+            "chip_status": get_chip_status(ft, current_gw.number if current_gw else 1),
+        }
+
     return {
         "user": {
             "id": user.id,
@@ -66,44 +85,300 @@ def get_current_user(
     }
 
 
+def _serialize_squad_player(sp):
+    return {
+        "id": sp.id,
+        "player_id": sp.player_id,
+        "player": {
+            "id": sp.player.id,
+            "name": sp.player.name,
+            "position": sp.player.position,
+            "team_id": sp.player.team_id,
+            "price": sp.player.price,
+            "team": {"id": sp.player.team.id, "name": sp.player.team.name} if sp.player.team else None,
+            "is_injured": sp.player.is_injured,
+            "injury_status": sp.player.injury_status,
+            "form": sp.player.form,
+            "selected_by_percent": sp.player.selected_by_percent,
+            "total_points_season": sp.player.total_points_season,
+        },
+        "position": sp.player.position,
+        "position_slot": sp.position_slot,
+        "is_captain": sp.is_captain,
+        "is_vice_captain": sp.is_vice_captain,
+        "is_starting": sp.is_starting,
+        "total_points": sp.total_points,
+        "gw_points": sp.gw_points,
+        "was_autosub": sp.was_autosub,
+        "bench_priority": sp.bench_priority,
+        "purchase_price": sp.purchase_price,
+        "selling_price": sp.selling_price,
+    }
+
+
+def _resolve_team(db: Session, team_or_user_id: int) -> FantasyTeam:
+    """Resolve a fantasy team by team id, falling back to user id.
+
+    The frontend mixes these so we accept either.
+    """
+    ft = db.query(FantasyTeam).filter(FantasyTeam.id == team_or_user_id).first()
+    if ft:
+        return ft
+    return db.query(FantasyTeam).filter(FantasyTeam.user_id == team_or_user_id).first()
+
+
 @router.get("/{user_id}/squad")
 def get_squad(user_id: int, db: Session = Depends(get_db)):
-    """Get squad players for a user's fantasy team."""
-    ft = db.query(FantasyTeam).filter(FantasyTeam.user_id == user_id).first()
+    """Get squad players for a user's fantasy team.
+
+    Accepts either user_id or fantasy_team_id (frontend mixes these).
+    """
+    ft = _resolve_team(db, user_id)
     if not ft:
         raise HTTPException(status_code=404, detail="Fantasy team not found")
-    
+
     squad = db.query(SquadPlayer).filter(SquadPlayer.fantasy_team_id == ft.id).all()
-    
-    return [
-        {
-            "id": sp.id,
-            "player_id": sp.player_id,
-            "player": {
-                "id": sp.player.id,
-                "name": sp.player.name,
-                "position": sp.player.position,
-                "team_id": sp.player.team_id,
-                "price": sp.player.price,
-                "team": {"name": sp.player.team.name} if sp.player.team else None,
-            },
-            "position_slot": sp.position_slot,
-            "is_captain": sp.is_captain,
-            "is_vice_captain": sp.is_vice_captain,
-            "is_starting": sp.is_starting,
-            "total_points": sp.total_points,
-            "gw_points": sp.gw_points,
-            "was_autosub": sp.was_autosub,
-            "bench_priority": sp.bench_priority,
-            "purchase_price": sp.purchase_price,
-        }
-        for sp in squad
-    ]
+    return [_serialize_squad_player(sp) for sp in squad]
 
 
-@router.post("/register", response_model=UserResponse)
+@router.get("/{team_id}/chips")
+def get_team_chips(team_id: int, db: Session = Depends(get_db)):
+    """Return chip status as a list (frontend renders chip cards)."""
+    ft = _resolve_team(db, team_id)
+    if not ft:
+        raise HTTPException(status_code=404, detail="Fantasy team not found")
+
+    current_gw = db.query(Gameweek).filter(
+        Gameweek.closed == False
+    ).order_by(Gameweek.number.desc()).first()
+    gw_num = current_gw.number if current_gw else 1
+    current_half = "first" if gw_num <= 19 else "second"
+
+    types = ["wildcard", "free_hit", "bench_boost", "triple_captain"]
+    out = []
+    for t in types:
+        first = getattr(ft, f"{t}_first_half", False)
+        second = getattr(ft, f"{t}_second_half", False)
+        out.append({
+            "type": t,
+            "first_half_used": first,
+            "second_half_used": second,
+            "active": ft.active_chip == t,
+            "current_half": current_half,
+            "available": (not first) if current_half == "first" else (not second),
+        })
+    return out
+
+
+@router.post("/{team_id}/chips/activate/{chip_type}")
+def activate_chip_route(team_id: int, chip_type: str, db: Session = Depends(get_db)):
+    ft = _resolve_team(db, team_id)
+    if not ft:
+        raise HTTPException(status_code=404, detail="Fantasy team not found")
+
+    current_gw = db.query(Gameweek).filter(
+        Gameweek.closed == False
+    ).order_by(Gameweek.number.desc()).first()
+    gw_num = current_gw.number if current_gw else 1
+
+    available, message = check_chip_availability(ft, chip_type, gw_num)
+    if not available:
+        raise HTTPException(status_code=400, detail=message)
+
+    success, message = activate_chip(ft, chip_type, gw_num)
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+    db.commit()
+    return {"status": "activated", "message": message, "chip": chip_type}
+
+
+@router.post("/{team_id}/chips/cancel/{chip_type}")
+def cancel_chip_route(team_id: int, chip_type: str, db: Session = Depends(get_db)):
+    ft = _resolve_team(db, team_id)
+    if not ft:
+        raise HTTPException(status_code=404, detail="Fantasy team not found")
+
+    if chip_type == "free_hit":
+        raise HTTPException(status_code=400, detail="Free Hit cannot be cancelled once confirmed")
+
+    current_gw = db.query(Gameweek).filter(
+        Gameweek.closed == False
+    ).order_by(Gameweek.number.desc()).first()
+    gw_num = current_gw.number if current_gw else 1
+
+    success, message = cancel_chip(ft, chip_type, gw_num)
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+    db.commit()
+    return {"status": "cancelled", "message": message, "chip": chip_type}
+
+
+@router.post("/{team_id}/captain/{squad_id}")
+def set_captain_by_squad(team_id: int, squad_id: int, db: Session = Depends(get_db)):
+    ft = _resolve_team(db, team_id)
+    if not ft:
+        raise HTTPException(status_code=404, detail="Fantasy team not found")
+
+    target = db.query(SquadPlayer).filter(
+        SquadPlayer.id == squad_id,
+        SquadPlayer.fantasy_team_id == ft.id,
+    ).first()
+    if not target:
+        raise HTTPException(status_code=400, detail="Player not in your squad")
+    if not target.is_starting:
+        raise HTTPException(status_code=400, detail="Captain must be in starting XI")
+
+    squad = db.query(SquadPlayer).filter(SquadPlayer.fantasy_team_id == ft.id).all()
+    for sp in squad:
+        if sp.id != squad_id and sp.is_captain:
+            sp.is_captain = False
+        if sp.id == squad_id and sp.is_vice_captain:
+            sp.is_vice_captain = False
+    target.is_captain = True
+    db.commit()
+    return {"status": "ok", "captain_id": squad_id}
+
+
+@router.post("/{team_id}/vice-captain/{squad_id}")
+def set_vice_captain_by_squad(team_id: int, squad_id: int, db: Session = Depends(get_db)):
+    ft = _resolve_team(db, team_id)
+    if not ft:
+        raise HTTPException(status_code=404, detail="Fantasy team not found")
+
+    target = db.query(SquadPlayer).filter(
+        SquadPlayer.id == squad_id,
+        SquadPlayer.fantasy_team_id == ft.id,
+    ).first()
+    if not target:
+        raise HTTPException(status_code=400, detail="Player not in your squad")
+    if not target.is_starting:
+        raise HTTPException(status_code=400, detail="Vice-captain must be in starting XI")
+
+    squad = db.query(SquadPlayer).filter(SquadPlayer.fantasy_team_id == ft.id).all()
+    for sp in squad:
+        if sp.id != squad_id and sp.is_vice_captain:
+            sp.is_vice_captain = False
+        if sp.id == squad_id and sp.is_captain:
+            sp.is_captain = False
+    target.is_vice_captain = True
+    db.commit()
+    return {"status": "ok", "vice_captain_id": squad_id}
+
+
+@router.post("/{team_id}/squad/{squad_id}/bench")
+def bench_squad_player(team_id: int, squad_id: int, db: Session = Depends(get_db)):
+    """Move a player to the bench, swapping with a valid bench player."""
+    ft = _resolve_team(db, team_id)
+    if not ft:
+        raise HTTPException(status_code=404, detail="Fantasy team not found")
+
+    sp = db.query(SquadPlayer).filter(
+        SquadPlayer.id == squad_id,
+        SquadPlayer.fantasy_team_id == ft.id,
+    ).first()
+    if not sp:
+        raise HTTPException(status_code=400, detail="Player not in squad")
+    if not sp.is_starting:
+        return {"status": "noop", "message": "Already on bench"}
+
+    squad = db.query(SquadPlayer).filter(SquadPlayer.fantasy_team_id == ft.id).all()
+
+    # Pick a bench player who can fill this position.
+    bench = sorted(
+        [b for b in squad if not b.is_starting],
+        key=lambda b: b.bench_priority or 99,
+    )
+
+    pos = sp.player.position
+    candidate = None
+    for b in bench:
+        if pos == "GK" and b.player.position == "GK":
+            candidate = b
+            break
+        if pos != "GK" and b.player.position != "GK":
+            # Validate resulting formation has at least 3 DEF and 1 FWD.
+            new_starters = [s for s in squad if s.is_starting and s.id != sp.id] + [b]
+            counts = {"GK": 0, "DEF": 0, "MID": 0, "FWD": 0}
+            for s in new_starters:
+                counts[s.player.position] += 1
+            if counts["DEF"] >= 3 and counts["FWD"] >= 1 and counts["MID"] >= 2 and counts["GK"] == 1:
+                candidate = b
+                break
+
+    if not candidate:
+        raise HTTPException(status_code=400, detail="No valid bench swap available for that position")
+
+    sp.is_starting = False
+    candidate.is_starting = True
+    if sp.is_captain:
+        sp.is_captain = False
+        candidate.is_captain = True
+    if sp.is_vice_captain:
+        sp.is_vice_captain = False
+        candidate.is_vice_captain = True
+    db.commit()
+    return {"status": "ok", "benched": squad_id, "promoted": candidate.id}
+
+
+@router.post("/{team_id}/squad/{squad_id}/start")
+def start_squad_player(team_id: int, squad_id: int, db: Session = Depends(get_db)):
+    """Promote a benched player to start, swapping with a starter at the same position group."""
+    ft = _resolve_team(db, team_id)
+    if not ft:
+        raise HTTPException(status_code=404, detail="Fantasy team not found")
+
+    sp = db.query(SquadPlayer).filter(
+        SquadPlayer.id == squad_id,
+        SquadPlayer.fantasy_team_id == ft.id,
+    ).first()
+    if not sp:
+        raise HTTPException(status_code=400, detail="Player not in squad")
+    if sp.is_starting:
+        return {"status": "noop", "message": "Already starting"}
+
+    squad = db.query(SquadPlayer).filter(SquadPlayer.fantasy_team_id == ft.id).all()
+    starters = [s for s in squad if s.is_starting]
+
+    pos = sp.player.position
+    # Find a starter to drop. For GK, drop the GK starter. For others, drop a starter
+    # that keeps the formation valid (at least 3 DEF, 1 FWD, 2 MID).
+    candidate = None
+    if pos == "GK":
+        candidate = next((s for s in starters if s.player.position == "GK"), None)
+    else:
+        for s in sorted(starters, key=lambda s: s.gw_points or 0):
+            if s.player.position == "GK":
+                continue
+            new_starters = [x for x in starters if x.id != s.id] + [sp]
+            counts = {"GK": 0, "DEF": 0, "MID": 0, "FWD": 0}
+            for x in new_starters:
+                counts[x.player.position] += 1
+            if counts["DEF"] >= 3 and counts["FWD"] >= 1 and counts["MID"] >= 2 and counts["GK"] == 1:
+                candidate = s
+                break
+
+    if not candidate:
+        raise HTTPException(status_code=400, detail="No valid starter to swap out")
+
+    sp.is_starting = True
+    candidate.is_starting = False
+    if candidate.is_captain:
+        candidate.is_captain = False
+        sp.is_captain = True
+    if candidate.is_vice_captain:
+        candidate.is_vice_captain = False
+        sp.is_vice_captain = True
+    db.commit()
+    return {"status": "ok", "promoted": squad_id, "benched": candidate.id}
+
+
+@router.post("/register")
 def register(user: UserCreate, db: Session = Depends(get_db)):
-    """Register a new user."""
+    """Register a new user, create their fantasy team, and return an auth token.
+
+    Creates an empty fantasy team (no squad players) which the user populates
+    via the Transfers page (or via auto-pick).
+    """
     existing = db.query(User).filter(
         or_(User.username == user.username, User.email == user.email)
     ).first()
@@ -118,7 +393,37 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
-    return new_user
+
+    team_name = (user.team_name or f"{user.username}'s Team").strip()
+    ft = FantasyTeam(
+        user_id=new_user.id,
+        name=team_name,
+        season="2025-26",
+        budget=100.0,
+        budget_remaining=100.0,
+        free_transfers=1,
+        free_transfers_next_gw=1,
+    )
+    db.add(ft)
+    db.commit()
+    db.refresh(ft)
+
+    return {
+        "access_token": f"bearer-{new_user.id}-{new_user.username}",
+        "user": {
+            "id": new_user.id,
+            "username": new_user.username,
+            "email": new_user.email,
+            "created_at": new_user.created_at.isoformat() if new_user.created_at else None,
+        },
+        "team": {
+            "id": ft.id,
+            "user_id": ft.user_id,
+            "name": ft.name,
+            "budget_remaining": ft.budget_remaining,
+            "season": ft.season,
+        },
+    }
 
 
 @router.post("/login")

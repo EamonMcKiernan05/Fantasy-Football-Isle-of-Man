@@ -110,6 +110,8 @@
         <!-- TRANSFERS -->
         <div id="page-transfers" class="page">
             <h2>Transfers</h2>
+            <div id="transfer-summary"></div>
+            <div id="transfer-selected"></div>
             <div class="transfer-controls">
                 <input type="text" id="transfer-search-input" placeholder="Search players..." oninput="searchTransferPlayers()">
                 <select id="transfer-position-filter" onchange="searchTransferPlayers()">
@@ -119,8 +121,14 @@
                     <option value="MID">Midfielders</option>
                     <option value="FWD">Forwards</option>
                 </select>
+                <select id="transfer-sort" onchange="searchTransferPlayers()">
+                    <option value="points">Total points</option>
+                    <option value="form">Form</option>
+                    <option value="price_high">Price (high to low)</option>
+                    <option value="price_low">Price (low to high)</option>
+                    <option value="selected">% selected</option>
+                </select>
             </div>
-            <div id="transfer-selected"></div>
             <div id="transfer-results"></div>
         </div>
 
@@ -364,6 +372,6 @@
     <div id="modal-overlay" class="modal-overlay" onclick="closeModal()"></div>
     <div id="modal-content" class="modal-content"></div>
 
-    <script src="/static/js/app.js?v=2"></script>
+    <script src="/static/js/app.js?v=3"></script>
 </body>
 </html>

@@ -26,18 +26,27 @@ from app.scoring import (
 router = APIRouter(prefix="/api/gameweeks", tags=["gameweeks"])
 
 
-@router.get("/", response_model=list)
+@router.get("/")
 def list_gameweeks(
     season: str = "2025-26",
     db: Session = Depends(get_db),
 ):
-    """List all gameweeks for a season."""
+    """List all gameweeks for a season.
+
+    Returns {gameweeks: [...], current_gw: {...}} so the frontend can render
+    deadlines and current GW info in one call.
+    """
     gameweeks = db.query(Gameweek).filter(
         Gameweek.season == season,
     ).order_by(Gameweek.number.asc()).all()
 
-    return [
-        {
+    current = next((gw for gw in gameweeks if not gw.closed), None)
+    next_unscored = next((gw for gw in gameweeks if not gw.scored), None)
+
+    items = []
+    for gw in gameweeks:
+        fixture_count = db.query(Fixture).filter(Fixture.gameweek_id == gw.id).count()
+        items.append({
             "id": gw.id,
             "number": gw.number,
             "season": gw.season,
@@ -46,9 +55,21 @@ def list_gameweeks(
             "deadline": gw.deadline.isoformat() if gw.deadline else None,
             "closed": gw.closed,
             "scored": gw.scored,
-        }
-        for gw in gameweeks
-    ]
+            "bonus_calculated": gw.bonus_calculated,
+            "fixture_count": fixture_count,
+            "is_current": current is not None and gw.id == current.id,
+            "is_next": next_unscored is not None and gw.id == next_unscored.id,
+        })
+
+    return {
+        "season": season,
+        "gameweeks": items,
+        "current_gw": {
+            "id": current.id,
+            "number": current.number,
+            "deadline": current.deadline.isoformat() if current and current.deadline else None,
+        } if current else None,
+    }
 
 
 @router.get("/current")
