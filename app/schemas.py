@@ -173,7 +173,7 @@ class FantasyTeamResponse(BaseModel):
     overall_rank: Optional[int] = None
     free_transfers: int = 1
     free_transfers_next_gw: int = 1
-    budget_remaining: float = 100.0
+    budget_remaining: float = 60.0
     chip_status: ChipStatus
     squad: List[SquadPlayerResponse] = []
     current_gw_transfers: int = 0

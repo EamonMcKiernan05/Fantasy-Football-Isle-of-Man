@@ -261,13 +261,7 @@ async function renderMyTeam() {
     renderChipStatusBar();
 }
 
-function detectFormation(squad) {
-    const starters = squad.filter(s => s.is_starting);
-    const def = starters.filter(s => (s.player?.position || s.position) === 'DEF').length;
-    const mid = starters.filter(s => (s.player?.position || s.position) === 'MID').length;
-    const fwd = starters.filter(s => (s.player?.position || s.position) === 'FWD').length;
-    return `${def}-${mid}-${fwd}`;
-}
+// Formation functions removed - no position restrictions
 
 function renderChipStatusBar() {
     const bar = document.getElementById('chip-status-bar');
@@ -360,11 +354,7 @@ function renderBench(squad) {
     }).join('');
 }
 
-function changeFormation() {
-    const sel = document.getElementById('formation-select');
-    if (!sel) return;
-    renderPitch(currentSquad, sel.value);
-}
+// changeFormation removed - no formation selector
 
 // ===== PLAYER MENU (captain / VC / bench / start / info) =====
 async function showPlayerMenu(squadId, playerId) {
@@ -381,7 +371,7 @@ async function showPlayerMenu(squadId, playerId) {
     content.innerHTML = `
         <div class="player-menu-modal">
             <h3>${escapeHtml(sp.player?.name || 'Player')}</h3>
-            <p class="muted">${escapeHtml(sp.player?.team?.name || '')} · ${sp.player?.position || ''} · £${(sp.player?.price || 0).toFixed(1)}m</p>
+            <p class="muted">${escapeHtml(sp.player?.team?.name || '')} · £${(sp.player?.price || 0).toFixed(1)}m</p>
             <div class="menu-actions">
                 ${isStarter && !sp.is_captain ? `<button class="btn btn-block btn-outline" data-action="captain" data-squad="${squadId}">Make Captain</button>` : ''}
                 ${isStarter && !sp.is_vice_captain ? `<button class="btn btn-block btn-outline" data-action="vice-captain" data-squad="${squadId}">Make Vice-Captain</button>` : ''}
@@ -493,7 +483,7 @@ async function renderChips() {
         const desc = {
             wildcard: 'Unlimited free transfers',
             free_hit: 'One-off squad change, reverts',
-            bench_boost: 'All 15 players score',
+            bench_boost: 'All 13 players score',
             triple_captain: 'Captain scores 3× instead of 2×',
         };
         chipsGrid.innerHTML = chips.map(c => {
@@ -658,9 +648,7 @@ function renderTransferSquad() {
     target.innerHTML = html;
 }
 
-function posLabel(pos) {
-    return ({ GK: 'Goalkeepers', DEF: 'Defenders', MID: 'Midfielders', FWD: 'Forwards' })[pos] || pos;
-}
+// posLabel removed - no position display
 
 function toggleOutPlayer(squadId) {
     const sp = currentSquad.find(s => s.id === squadId);

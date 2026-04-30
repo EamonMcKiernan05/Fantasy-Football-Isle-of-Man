@@ -512,7 +512,7 @@ def create_fantasy_team(
         "id": ft.id,
         "name": ft.name,
         "budget_remaining": ft.budget_remaining,
-        "message": f"Team '{ft.name}' created. Now select 15 players.",
+        "message": f"Team '{ft.name}' created. Now select 13 players.",
     }
 
 
