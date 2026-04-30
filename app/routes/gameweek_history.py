@@ -57,6 +57,22 @@ def get_current_gw_info(db: Session = Depends(get_db)):
     }
 
 
+@router.get("/deadline/{gameweek_id}")
+def _alias_deadline(gameweek_id: int, db: Session = Depends(get_db)):
+    """Alias kept early for route-ordering: see get_deadline_info."""
+    return get_deadline_info(gameweek_id, db)
+
+
+@router.get("/transfer-history/{team_id}")
+def _alias_transfer_history(
+    team_id: int,
+    gameweek_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Alias kept early for route-ordering: see get_transfer_history."""
+    return get_transfer_history(team_id, gameweek_id, db)
+
+
 @router.get("/{team_id}/{gameweek_id}")
 def get_gameweek_breakdown(
     team_id: int,

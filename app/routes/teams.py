@@ -111,7 +111,7 @@ def list_divisions(db: Session = Depends(get_db)):
     return result
 
 
-@router.get("/", response_model=List[TeamResponse])
+@router.get("/")
 def list_teams(
     division_id: int = Query(None, description="Filter by division ID"),
     db: Session = Depends(get_db),
@@ -120,7 +120,25 @@ def list_teams(
     query = db.query(Team)
     if division_id:
         query = query.filter(Team.division_id == division_id)
-    return query.order_by(Team.name).all()
+    teams = query.order_by(Team.name).all()
+    return {
+        "teams": [
+            {
+                "id": t.id,
+                "name": t.name,
+                "short_name": t.short_name,
+                "division_id": t.division_id,
+                "current_position": t.current_position,
+                "current_points": t.current_points,
+                "games_played": t.games_played,
+                "games_won": t.games_won,
+                "games_drawn": t.games_drawn,
+                "games_lost": t.games_lost,
+                "goal_difference": t.goal_difference,
+            }
+            for t in teams
+        ],
+    }
 
 
 @router.get("/{team_id}", response_model=TeamResponse)

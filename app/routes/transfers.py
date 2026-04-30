@@ -25,6 +25,229 @@ from app.scoring import (
 router = APIRouter(prefix="/api/transfers", tags=["transfers"])
 
 
+SQUAD_LIMIT = 15
+POSITION_LIMITS = {"GK": 2, "DEF": 5, "MID": 5, "FWD": 3}
+MAX_PER_CLUB = 3
+
+
+def _resolve_team(db: Session, fantasy_team_id=None, user_id=None):
+    if fantasy_team_id:
+        ft = db.query(FantasyTeam).filter(FantasyTeam.id == fantasy_team_id).first()
+        if ft:
+            return ft
+    if user_id:
+        return db.query(FantasyTeam).filter(FantasyTeam.user_id == user_id).first()
+    return None
+
+
+@router.post("/player")
+def transfer_player(payload: dict, db: Session = Depends(get_db)):
+    """Add a player, drop a player, or swap a player.
+
+    Body fields (all optional except one of in/out):
+        - fantasy_team_id or user_id
+        - player_in_id (add to squad)
+        - player_out_id (remove from squad)
+
+    Behaviour:
+        * If only player_in_id: pure add (must have an empty slot at that position)
+        * If only player_out_id: pure drop
+        * If both: paired swap (counts as one transfer for hit calc)
+
+    This matches the FPL "build a squad / make a transfer" UX where you can
+    drop a player and pick a replacement separately.
+    """
+    fantasy_team_id = payload.get("fantasy_team_id")
+    user_id = payload.get("user_id")
+    player_in_id = payload.get("player_in_id")
+    player_out_id = payload.get("player_out_id")
+
+    ft = _resolve_team(db, fantasy_team_id, user_id)
+    if not ft:
+        raise HTTPException(status_code=404, detail="Fantasy team not found")
+
+    if not player_in_id and not player_out_id:
+        raise HTTPException(status_code=400, detail="Must provide player_in_id or player_out_id")
+
+    if ft.transfer_deadline_exceeded:
+        raise HTTPException(status_code=400, detail="Transfer deadline exceeded for this gameweek")
+
+    current_gw = db.query(Gameweek).filter(
+        Gameweek.closed == False
+    ).order_by(Gameweek.number.desc()).first()
+
+    is_wildcard = ft.active_chip == "wildcard"
+    is_free_hit = ft.active_chip == "free_hit"
+
+    squad = db.query(SquadPlayer).filter(SquadPlayer.fantasy_team_id == ft.id).all()
+    squad_len = len(squad)
+
+    # --- Drop only ---
+    if player_out_id and not player_in_id:
+        sp = next((s for s in squad if s.player_id == player_out_id), None)
+        if not sp:
+            raise HTTPException(status_code=404, detail="Player not in squad")
+        sell_price = calculate_selling_price(sp.purchase_price, sp.player.price)
+        ft.budget_remaining = round(ft.budget_remaining + sell_price, 1)
+        db.delete(sp)
+        db.commit()
+        return {
+            "status": "dropped",
+            "player_out": {"id": sp.player_id, "name": sp.player.name, "sold_for": sell_price},
+            "budget_remaining": round(ft.budget_remaining, 1),
+        }
+
+    # --- Add only (filling empty slot) ---
+    if player_in_id and not player_out_id:
+        if squad_len >= SQUAD_LIMIT:
+            raise HTTPException(status_code=400, detail=f"Squad full ({SQUAD_LIMIT} players). Drop a player first.")
+        player_in = db.query(Player).filter(Player.id == player_in_id).first()
+        if not player_in:
+            raise HTTPException(status_code=404, detail="Player not found")
+        if any(s.player_id == player_in.id for s in squad):
+            raise HTTPException(status_code=400, detail="Player already in squad")
+
+        # Position limit check
+        same_pos = sum(1 for s in squad if s.player.position == player_in.position)
+        if same_pos >= POSITION_LIMITS[player_in.position]:
+            raise HTTPException(status_code=400, detail=f"Already have {POSITION_LIMITS[player_in.position]} {player_in.position}")
+        # Club limit
+        same_team = sum(1 for s in squad if s.player.team_id == player_in.team_id)
+        if same_team >= MAX_PER_CLUB:
+            raise HTTPException(status_code=400, detail="Already have 3 players from this club")
+        # Budget
+        if ft.budget_remaining < player_in.price:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot afford. Need £{player_in.price:.1f}m, have £{ft.budget_remaining:.1f}m",
+            )
+
+        # Position slot - assign by current count
+        slot_base = {"GK": 1, "DEF": 3, "MID": 8, "FWD": 13}
+        position_slot = slot_base[player_in.position] + same_pos
+
+        # Starting/bench: first 11 by squad order are starting (FPL default 4-4-2-ish);
+        # for simplicity, mark as starting if there's room in a default 4-4-2.
+        starting_caps = {"GK": 1, "DEF": 4, "MID": 4, "FWD": 2}
+        starting_pos_count = sum(
+            1 for s in squad if s.is_starting and s.player.position == player_in.position
+        )
+        is_starting = starting_pos_count < starting_caps[player_in.position]
+
+        new_sp = SquadPlayer(
+            fantasy_team_id=ft.id,
+            player_id=player_in.id,
+            position_slot=position_slot,
+            is_starting=is_starting,
+            purchase_price=player_in.price,
+            selling_price=player_in.price,
+            bench_priority=99 if is_starting else (squad_len - 10),
+        )
+        db.add(new_sp)
+        ft.budget_remaining = round(ft.budget_remaining - player_in.price, 1)
+
+        # If squad is now full, increment transfers (but not the first 15 picks)
+        # First 15 picks are squad creation, no transfer hit.
+        if squad_len + 1 == SQUAD_LIMIT:
+            pass  # No transfer cost when filling initial squad
+
+        db.commit()
+        return {
+            "status": "added",
+            "player_in": {"id": player_in.id, "name": player_in.name, "price": player_in.price},
+            "budget_remaining": round(ft.budget_remaining, 1),
+            "squad_size": squad_len + 1,
+        }
+
+    # --- Swap (in + out) ---
+    sp_out = next((s for s in squad if s.player_id == player_out_id), None)
+    if not sp_out:
+        raise HTTPException(status_code=404, detail="Player to drop not in squad")
+
+    player_in = db.query(Player).filter(Player.id == player_in_id).first()
+    if not player_in:
+        raise HTTPException(status_code=404, detail="Player to add not found")
+    if any(s.player_id == player_in.id for s in squad):
+        raise HTTPException(status_code=400, detail="Player already in squad")
+    if player_in.position != sp_out.player.position:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Position mismatch: must swap {sp_out.player.position} for {sp_out.player.position}",
+        )
+
+    # Club limit (excluding the outgoing player)
+    same_team = sum(
+        1 for s in squad
+        if s.player.team_id == player_in.team_id and s.player_id != player_out_id
+    )
+    if same_team >= MAX_PER_CLUB:
+        raise HTTPException(status_code=400, detail="Already have 3 players from this club")
+
+    sell_price = calculate_selling_price(sp_out.purchase_price, sp_out.player.price)
+    budget_after = round(ft.budget_remaining + sell_price - player_in.price, 1)
+    if budget_after < 0:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Cannot afford. Cost £{player_in.price:.1f}m, sell £{sell_price:.1f}m. "
+                f"Budget would be £{budget_after:.1f}m"
+            ),
+        )
+
+    # Transfer cost
+    points_hit = 0
+    if not is_wildcard and not is_free_hit:
+        if ft.free_transfers > 0:
+            ft.free_transfers -= 1
+        else:
+            points_hit = 4
+
+    # Carry over slot/captaincy
+    new_sp = SquadPlayer(
+        fantasy_team_id=ft.id,
+        player_id=player_in.id,
+        position_slot=sp_out.position_slot,
+        is_starting=sp_out.is_starting,
+        is_captain=sp_out.is_captain,
+        is_vice_captain=sp_out.is_vice_captain,
+        bench_priority=sp_out.bench_priority,
+        purchase_price=player_in.price,
+        selling_price=player_in.price,
+    )
+    db.add(new_sp)
+    db.delete(sp_out)
+
+    ft.budget_remaining = budget_after
+    ft.current_gw_transfers += 1
+
+    transfer_record = Transfer(
+        user_id=ft.user_id,
+        player_in_id=player_in.id,
+        player_out_id=player_out_id,
+        points_scored_by_outgoing=sp_out.total_points,
+        is_wildcard=is_wildcard,
+        is_free_hit=is_free_hit,
+        gameweek_id=current_gw.id if current_gw else None,
+    )
+    db.add(transfer_record)
+
+    db.commit()
+    return {
+        "status": "swapped",
+        "player_in": {"id": player_in.id, "name": player_in.name, "price": player_in.price},
+        "player_out": {
+            "id": sp_out.player_id,
+            "name": sp_out.player.name,
+            "sold_for": sell_price,
+        },
+        "points_hit": points_hit,
+        "budget_remaining": round(ft.budget_remaining, 1),
+        "free_transfers": ft.free_transfers,
+        "is_wildcard": is_wildcard,
+        "is_free_hit": is_free_hit,
+    }
+
+
 @router.post("/", response_model=dict)
 def make_transfer(request: TransferRequest, db: Session = Depends(get_db)):
     """Make a transfer (player in + player out).
