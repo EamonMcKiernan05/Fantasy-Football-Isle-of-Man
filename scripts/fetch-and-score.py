@@ -636,3 +636,9 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+    # Auto-push database to GitHub after update
+    subprocess.run(
+        ["bash", os.path.join(os.path.dirname(__file__), "git-push-db.sh")],
+        check=False,
+    )
