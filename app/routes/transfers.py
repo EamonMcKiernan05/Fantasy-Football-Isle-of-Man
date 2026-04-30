@@ -172,7 +172,7 @@ def transfer_player(payload: dict, db: Session = Depends(get_db)):
     if player_in.position != sp_out.player.position:
         raise HTTPException(
             status_code=400,
-            detail=f"Position mismatch: must swap {sp_out.player.position} for {sp_out.player.position}",
+            detail=f"Position mismatch: cannot swap {sp_out.player.position} for {player_in.position}",
         )
 
     # Club limit (excluding the outgoing player)
