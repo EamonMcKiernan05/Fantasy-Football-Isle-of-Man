@@ -138,7 +138,7 @@ def recalculate_all_team_values(db: Session) -> dict:
             if player:
                 total_value += player.price
 
-        ft.budget_remaining = 60.0 - total_value
+        ft.budget_remaining = 90.0 - total_value
         updated += 1
 
     db.commit()

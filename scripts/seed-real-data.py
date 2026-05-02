@@ -31,7 +31,7 @@ from app.utils.passwords import hash_password
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-API_BASE = "https://faapi.jwhsolutions.co.uk/api"
+API_BASE = "http://localhost:5000/api"
 DIV_PREMIER = "175685803"
 
 # Team name normalization
@@ -291,8 +291,18 @@ def main():
     for gw_num, dates in enumerate(gameweek_dates, 1):
         start_date = dates[0]
         end_date = dates[-1]
-        deadline = datetime.combine(start_date - timedelta(days=1), datetime.min.time())
-        deadline = deadline.replace(hour=11)
+        # Deadline: 2 hours before first kick-off in this GW
+        first_fixture_time = None
+        for dt in dates:
+            for r in results_by_date[dt]:
+                ft = parse_date(r.get("fixtureDateTime", ""))
+                if ft:
+                    if first_fixture_time is None or ft < first_fixture_time:
+                        first_fixture_time = ft
+        if first_fixture_time:
+            deadline = first_fixture_time - timedelta(hours=2)
+        else:
+            deadline = datetime.combine(start_date, datetime.min.time()).replace(hour=11)
 
         # Check if gameweek already exists
         gw = db.query(Gameweek).filter(
@@ -595,8 +605,8 @@ def main():
             user_id=user.id,
             name="Test FC",
             season="2025-26",
-            budget=60.0,
-            budget_remaining=60.0,
+            budget=90.0,
+            budget_remaining=90.0,
             free_transfers=1,
             free_transfers_next_gw=1,
         )
@@ -608,7 +618,7 @@ def main():
             Player.price.desc()
         ).all()
 
-        budget = 60.0
+        budget = 90.0
         squad_players = []
         used_names = set()
 

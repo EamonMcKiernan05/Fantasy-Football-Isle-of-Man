@@ -225,25 +225,25 @@ def create_sample_users(db: Session = Depends(get_db)):
         db.flush()
         users_created += 1
 
-        # Create fantasy team with £60m budget
+        # Create fantasy team with £90m budget
         ft = FantasyTeam(
             user_id=user.id,
             name=team_name,
             season="2025-26",
-            budget=60.0,
-            budget_remaining=60.0,
+            budget=90.0,
+            budget_remaining=90.0,
             free_transfers=1,
             free_transfers_next_gw=1,
         )
         db.add(ft)
         db.flush()
 
-        # Add players to squad (13 players within £60m budget, no position restrictions)
+        # Add players to squad (13 players within £90m budget, no position restrictions)
         shuffled = list(players)
         random.shuffle(shuffled)
 
         squad = []
-        budget = 60.0
+        budget = 90.0
 
         for player in shuffled:
             if len(squad) >= 13:

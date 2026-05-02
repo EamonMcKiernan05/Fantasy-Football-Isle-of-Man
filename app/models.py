@@ -3,7 +3,7 @@
 Player-based FPL system - each manager picks individual players from IOM leagues.
 
 Key Rules:
-- Squad: 13 players, £60m budget, no position restrictions
+- Squad: 13 players, £90m budget, no position restrictions
 - 10 starting players, 3 subs
 - Max 3 players per club
 - 1 free transfer per GW, rollover max 4 (max 5 total with current GW)
@@ -231,7 +231,7 @@ class FantasyTeam(Base):
     """A user's fantasy team (squad of individual players).
 
     Rules:
-    - 13 players max, £60m budget, no position restrictions
+    - 13 players max, £90m budget, no position restrictions
     - 10 starting players, 3 subs
     - 1 free transfer per GW, rollover max 4 (5 total)
     - 2 wildcards per season (GW 1-11 and GW 12-24)
@@ -249,9 +249,9 @@ class FantasyTeam(Base):
     name = Column(String(100), nullable=False)
     season = Column(String(20), nullable=False)
 
-    # Budget (£60m total)
-    budget = Column(Float, default=60.0)
-    budget_remaining = Column(Float, default=60.0)
+    # Budget (£90m total)
+    budget = Column(Float, default=90.0)
+    budget_remaining = Column(Float, default=90.0)
 
     total_points = Column(Integer, default=0)
     overall_rank = Column(Integer, nullable=True)

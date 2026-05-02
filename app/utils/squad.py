@@ -5,10 +5,10 @@ from app.models import SquadPlayer, FantasyTeam, Player
 def create_default_squad(fantasy_team: FantasyTeam, players: list, db):
     """Create a default squad for a fantasy team.
 
-    Selects 13 players (no position restrictions) within £60m budget.
+    Selects 13 players (no position restrictions) within £90m budget.
     10 starting players + 3 subs.
     """
-    budget = 60.0
+    budget = 90.0
 
     # Sort all active players by price (cheapest first)
     sorted_players = sorted(

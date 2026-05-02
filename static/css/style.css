@@ -854,6 +854,15 @@ body {
     font-size: 0.8rem;
 }
 
+.fixture-date {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-weight: 400;
+    margin-top: 2px;
+    text-align: center;
+}
+
 .difficulty-badge {
     display: inline-flex;
     align-items: center;

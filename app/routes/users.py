@@ -361,8 +361,8 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
         user_id=new_user.id,
         name=team_name,
         season="2025-26",
-        budget=60.0,
-        budget_remaining=60.0,
+        budget=90.0,
+        budget_remaining=90.0,
         free_transfers=1,
         free_transfers_next_gw=1,
     )
@@ -499,8 +499,8 @@ def create_fantasy_team(
         user_id=user_id,
         name=team_name,
         season="2025-26",
-        budget=60.0,
-        budget_remaining=60.0,
+        budget=90.0,
+        budget_remaining=90.0,
         free_transfers=1,
         free_transfers_next_gw=1,
     )

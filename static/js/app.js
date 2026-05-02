@@ -906,7 +906,8 @@ function renderFixtures(fixtures) {
                         <span class="difficulty-badge ${homeDiff}">${f.home_difficulty}</span>
                     </div>
                     <div class="fixture-result">
-                        ${f.played ? `<span class="score">${f.home_score}-${f.away_score}</span>` : `<span class="vs">${f.date ? formatTime(f.date) : 'vs'}</span>`}
+                        ${f.played ? `<span class="score">${f.home_score}-${f.away_score}</span>` : `<span class="vs">vs</span>`}
+                        ${f.date ? `<span class="fixture-date">${formatDate(f.date)} ${formatTime(f.date)}</span>` : ''}
                     </div>
                     <div class="fixture-team away">
                         <span class="difficulty-badge ${awayDiff}">${f.away_difficulty}</span>
@@ -1072,7 +1073,8 @@ async function loadGameweekDetails(gwId) {
                                 <div class="fixture-row">
                                     <div class="fixture-team home"><span class="team-name">${escapeHtml(f.home_team)}</span></div>
                                     <div class="fixture-result">
-                                        ${f.played ? `<span class="score">${f.home_score}-${f.away_score}</span>` : `<span class="vs">${f.date ? formatTime(f.date) : 'vs'}</span>`}
+                                        ${f.played ? `<span class="score">${f.home_score}-${f.away_score}</span>` : `<span class="vs">vs</span>`}
+                                        ${f.date ? `<span class="fixture-date">${formatDate(f.date)} ${formatTime(f.date)}</span>` : ''}
                                     </div>
                                     <div class="fixture-team away"><span class="team-name">${escapeHtml(f.away_team)}</span></div>
                                 </div>`).join('') : '<div class="muted">No fixtures</div>'}
