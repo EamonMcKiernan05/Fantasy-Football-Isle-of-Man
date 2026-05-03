@@ -1085,7 +1085,6 @@ async function loadGameweekDetails(gwId) {
                         <div class="top-performers">
                             ${(stats.top_players || []).map(p => `
                                 <div class="top-perf-row">
-                                    <span class="pos-badge pos-${(p.position || '').toLowerCase()}">${p.position}</span>
                                     <span class="tp-name">${escapeHtml(p.name)}</span>
                                     <span class="muted">${escapeHtml(p.team_name)}</span>
                                     <span class="tp-points">${p.points} pts</span>
@@ -1226,7 +1225,6 @@ async function loadGameweekBreakdown() {
                 ${(data.player_breakdown || []).map(p => `
                     <div class="player-breakdown-card ${p.is_starting ? 'starting' : 'bench'}">
                         <div class="pb-header">
-                            <span class="pos-badge pos-${(p.position || '').toLowerCase()}">${p.position}</span>
                             <span class="pb-name">${escapeHtml(p.name)}</span>
                             ${p.is_captain ? '<span class="captain-badge-sm">C</span>' : ''}
                             ${p.is_vice_captain ? '<span class="vice-badge-sm">V</span>' : ''}
@@ -1396,7 +1394,7 @@ function renderDreamRow(players, top) {
         const gradientLight = shirtGradientLight(teamName);
         return `
             <div class="pitch-slot" style="left:${x}%">
-                <div class="player-card fpl-card pos-${p.position.toLowerCase()}" style="--shirt-dark:${gradient};--shirt-light:${gradientLight}">
+                <div class="player-card fpl-card" style="--shirt-dark:${gradient};--shirt-light:${gradientLight}">
                     ${captain}
                     <div class="fpl-shirt" style="background:linear-gradient(180deg,${gradientLight}, ${gradient})"></div>
                     <div class="fpl-player-name">${escapeHtml(p.name)}</div>
@@ -1505,9 +1503,8 @@ function renderPlayerDetailModal(data) {
         <div class="player-detail-modal">
             <div class="player-detail-header">
                 <div>
-                    <h2>${escapeHtml(player.name)}</h2>
+                  <h2>${escapeHtml(player.name)}</h2>
                     <div class="muted">
-                        <span class="pos-badge pos-${player.position.toLowerCase()}">${player.position}</span>
                         ${escapeHtml(player.team_name || '')}
                     </div>
                 </div>
@@ -1576,24 +1573,36 @@ function formatTime(iso) {
     return new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 }
 
-// Generate deterministic HSL color from team name
-function teamColor(name) {
-    if (!name) return { h: 200, s: 60, l: 40 };
-    let hash = 0;
-    for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-    const h = Math.abs(hash) % 360;
-    // Avoid very light or very dark colors
-    return { h, s: 55 + (Math.abs(hash >> 8) % 20), l: 30 + (Math.abs(hash >> 4) % 20) };
-}
+// Real IOM Premier League club kit colours (source: Wikipedia)
+const CLUB_COLORS = {
+    // Primary (shirt dark) and secondary (shirt light)
+    'Ayre United':        { dark: '#E07000', light: '#FFB347' },  // Tangerine
+    'Braddan':            { dark: '#2850A0', light: '#6088D0' },  // Royal blue
+    'Corinthians':        { dark: '#333333', light: '#999999' },  // Black/white
+    'DHSOB':              { dark: '#1B3580', light: '#5070C0' },  // Blue/white
+    'Foxdale':            { dark: '#1040A0', light: '#5080D8' },  // Blue/white stripes
+    'Laxey':              { dark: '#006400', light: '#3CA03C' },  // Green/white stripes
+    'Onchan':             { dark: '#1030A0', light: '#4068D8' },  // Yellow/blue -> blue dominant
+    'Peel':               { dark: '#C41E1E', light: '#E85050' },  // Red/white
+    'Ramsey':             { dark: '#1838A8', light: '#4870D8' },  // Blue/white stripes
+    'Rushen United':      { dark: '#B8960A', light: '#E0C830' },  // Yellow/black -> amber
+    'St Johns':           { dark: '#1E3A8A', light: '#5078C8' },  // Royal blue/yellow stripes
+    'St Johns United':    { dark: '#1E3A8A', light: '#5078C8' },  // Alias
+    'St Marys':           { dark: '#1A7A1A', light: '#40A840' },  // Green/yellow -> green dominant
+    'Union Mills':        { dark: '#800020', light: '#C03060' },  // Claret/sky blue -> claret dominant
+    'Marown':             { dark: '#1A4A80', light: '#4080C0' },  // Blue/white
+};
 
-// FPL-style team shirt background gradient from team name
+// FPL-style team shirt background gradient using real club colours
 function shirtGradient(name) {
-    const c = teamColor(name);
-    return `hsl(${c.h}, ${c.s}%, ${c.l}%)`;
+    const c = CLUB_COLORS[name];
+    if (!c) return '#555555';
+    return c.dark;
 }
 function shirtGradientLight(name) {
-    const c = teamColor(name);
-    return `hsl(${c.h}, ${c.s}%, ${Math.min(c.l + 15, 65)}%)`;
+    const c = CLUB_COLORS[name];
+    if (!c) return '#888888';
+    return c.light;
 }
 
 // ===== INIT =====

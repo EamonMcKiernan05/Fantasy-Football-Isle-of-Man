@@ -105,13 +105,6 @@
             <div id="transfer-selected"></div>
             <div class="transfer-controls">
                 <input type="text" id="transfer-search-input" placeholder="Search players..." oninput="searchTransferPlayers()">
-                <select id="transfer-position-filter" onchange="searchTransferPlayers()">
-                    <option value="">All Positions</option>
-                    <option value="GK">Goalkeepers</option>
-                    <option value="DEF">Defenders</option>
-                    <option value="MID">Midfielders</option>
-                    <option value="FWD">Forwards</option>
-                </select>
                 <select id="transfer-sort" onchange="searchTransferPlayers()">
                     <option value="points">Total points</option>
                     <option value="form">Form</option>
@@ -128,13 +121,6 @@
             <h2>All Players</h2>
             <div class="player-filters">
                 <input type="text" id="player-search" placeholder="Search..." oninput="loadPlayers()">
-                <select id="player-position" onchange="loadPlayers()">
-                    <option value="">All Positions</option>
-                    <option value="GK">Goalkeepers</option>
-                    <option value="DEF">Defenders</option>
-                    <option value="MID">Midfielders</option>
-                    <option value="FWD">Forwards</option>
-                </select>
                 <select id="player-sort" onchange="loadPlayers()">
                     <option value="total_points">Points</option>
                     <option value="goals">Goals</option>
@@ -354,6 +340,6 @@
     <div id="modal-overlay" class="modal-overlay"></div>
     <div id="modal-content" class="modal-content" onclick="event.stopPropagation()"></div>
 
-    <script src="/static/js/app.js?v=4"></script>
+    <script src="/static/js/app.js?v=5"></script>
 </body>
 </html>
