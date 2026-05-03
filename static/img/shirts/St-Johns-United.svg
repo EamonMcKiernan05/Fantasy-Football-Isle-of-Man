@@ -9,7 +9,7 @@
       <rect x="6" width="6" height="12" fill="#FFD700"/>
     </pattern>
   </defs>
-  <g clip-path="url(#shirt-St-Johns-United')">
+  <g clip-path="url(#shirt-St-Johns-United)">
     <rect x="0" y="0" width="64" height="64" fill="url(#stripes-St-Johns-United)"/>
     <rect x="0" y="0" width="64" height="64" fill="none" stroke="#000" stroke-width="0.5" opacity="0.3"/>
   </g>
