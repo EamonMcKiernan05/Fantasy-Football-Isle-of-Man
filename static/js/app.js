@@ -323,7 +323,7 @@ function renderPitchPlayer(sp, xPct, topPct) {
             <div class="player-card fpl-card" onclick="${clickHandler}" style="--shirt-dark:${gradient};--shirt-light:${gradientLight}">
                 ${captainBadge}
                 ${injured}
-                <div class="fpl-shirt" style="background:linear-gradient(180deg,${gradientLight}, ${gradient})"></div>
+                <div class="fpl-shirt" style="background:${gradient}"></div>
                 <div class="fpl-player-name">${escapeHtml(sp.player?.name || '?')}</div>
                 <div class="fpl-player-team">${escapeHtml(teamName)}</div>
                 <div class="fpl-player-points">${points}</div>
@@ -345,7 +345,7 @@ function renderBench(squad) {
             <div class="bench-slot" onclick="showPlayerMenu(${sp.id}, ${sp.player_id})">
                 <div class="bench-slot-num">SUB ${idx + 1}</div>
                 <div class="player-card fpl-card bench-card">
-                    <div class="fpl-shirt" style="background:linear-gradient(180deg,${gradientLight}, ${gradient})"></div>
+                    <div class="fpl-shirt" style="background:${gradient}"></div>
                     <div class="fpl-player-name">${escapeHtml(sp.player?.name || '?')}</div>
                     <div class="fpl-player-team">${escapeHtml(teamName)}</div>
                     <div class="fpl-player-points">${sp.gw_points != null ? sp.gw_points : '–'}</div>
@@ -1396,7 +1396,7 @@ function renderDreamRow(players, top) {
             <div class="pitch-slot" style="left:${x}%">
                 <div class="player-card fpl-card" style="--shirt-dark:${gradient};--shirt-light:${gradientLight}">
                     ${captain}
-                    <div class="fpl-shirt" style="background:linear-gradient(180deg,${gradientLight}, ${gradient})"></div>
+                    <div class="fpl-shirt" style="background:${gradient}"></div>
                     <div class="fpl-player-name">${escapeHtml(p.name)}</div>
                     <div class="fpl-player-team">${escapeHtml(teamName)}</div>
                     <div class="fpl-player-points">${p.points} pts</div>
@@ -1573,35 +1573,48 @@ function formatTime(iso) {
     return new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 }
 
-// Real IOM Premier League club kit colours (source: Wikipedia)
+// Real IOM Premier League club kit colours + patterns (source: Wikipedia)
+// pattern: 'solid' | 'stripes' (vertical) | 'hoops' (horizontal)
 const CLUB_COLORS = {
-    // Primary (shirt dark) and secondary (shirt light)
-    'Ayre United':        { dark: '#E07000', light: '#FFB347' },  // Tangerine
-    'Braddan':            { dark: '#2850A0', light: '#6088D0' },  // Royal blue
-    'Corinthians':        { dark: '#333333', light: '#999999' },  // Black/white
-    'DHSOB':              { dark: '#1B3580', light: '#5070C0' },  // Blue/white
-    'Foxdale':            { dark: '#1040A0', light: '#5080D8' },  // Blue/white stripes
-    'Laxey':              { dark: '#006400', light: '#3CA03C' },  // Green/white stripes
-    'Onchan':             { dark: '#1030A0', light: '#4068D8' },  // Yellow/blue -> blue dominant
-    'Peel':               { dark: '#C41E1E', light: '#E85050' },  // Red/white
-    'Ramsey':             { dark: '#1838A8', light: '#4870D8' },  // Blue/white stripes
-    'Rushen United':      { dark: '#B8960A', light: '#E0C830' },  // Yellow/black -> amber
-    'St Johns':           { dark: '#1E3A8A', light: '#5078C8' },  // Royal blue/yellow stripes
-    'St Johns United':    { dark: '#1E3A8A', light: '#5078C8' },  // Alias
-    'St Marys':           { dark: '#1A7A1A', light: '#40A840' },  // Green/yellow -> green dominant
-    'Union Mills':        { dark: '#800020', light: '#C03060' },  // Claret/sky blue -> claret dominant
-    'Marown':             { dark: '#1A4A80', light: '#4080C0' },  // Blue/white
+    'Ayre United':        { dark: '#E07000', light: '#FFB347', pattern: 'stripes', stripe: '#1a1a1a' },
+    'Braddan':            { dark: '#2850A0', light: '#6088D0', pattern: 'solid' },
+    'Corinthians':        { dark: '#333333', light: '#FFFFFF', pattern: 'solid' },
+    'DHSOB':              { dark: '#1B3580', light: '#FFFFFF', pattern: 'stripes', stripe: '#FFFFFF' },
+    'Foxdale':            { dark: '#1040A0', light: '#FFFFFF', pattern: 'stripes', stripe: '#FFFFFF' },
+    'Laxey':              { dark: '#006400', light: '#FFFFFF', pattern: 'stripes', stripe: '#FFFFFF' },
+    'Onchan':             { dark: '#1030A0', light: '#FFD700', pattern: 'solid' },
+    'Peel':               { dark: '#C41E1E', light: '#FFFFFF', pattern: 'stripes', stripe: '#FFFFFF' },
+    'Ramsey':             { dark: '#1838A8', light: '#FFFFFF', pattern: 'stripes', stripe: '#FFFFFF' },
+    'Rushen United':      { dark: '#E0C830', light: '#1a1a1a', pattern: 'hoops', stripe: '#1a1a1a' },
+    'St Johns':           { dark: '#1E3A8A', light: '#FFD700', pattern: 'stripes', stripe: '#FFD700' },
+    'St Johns United':    { dark: '#1E3A8A', light: '#FFD700', pattern: 'stripes', stripe: '#FFD700' },
+    'St Marys':           { dark: '#1A7A1A', light: '#FFD700', pattern: 'solid' },
+    'Union Mills':        { dark: '#800020', light: '#87CEEB', pattern: 'solid' },
+    'Marown':             { dark: '#1A4A80', light: '#FFFFFF', pattern: 'stripes', stripe: '#FFFFFF' },
 };
 
-// FPL-style team shirt background gradient using real club colours
+// FPL-style team shirt background using real club colours + patterns
 function shirtGradient(name) {
     const c = CLUB_COLORS[name];
     if (!c) return '#555555';
+    if (c.pattern === 'stripes') {
+        return `repeating-linear-gradient(90deg, ${c.dark} 0px, ${c.dark} 6px, ${c.stripe} 6px, ${c.stripe} 12px)`;
+    }
+    if (c.pattern === 'hoops') {
+        return `repeating-linear-gradient(0deg, ${c.dark} 0px, ${c.dark} 6px, ${c.stripe} 6px, ${c.stripe} 12px)`;
+    }
     return c.dark;
 }
 function shirtGradientLight(name) {
     const c = CLUB_COLORS[name];
     if (!c) return '#888888';
+    // Light variant uses the same pattern but with adjusted colors
+    if (c.pattern === 'stripes') {
+        return `repeating-linear-gradient(90deg, ${c.dark} 0px, ${c.dark} 6px, ${c.stripe} 6px, ${c.stripe} 12px)`;
+    }
+    if (c.pattern === 'hoops') {
+        return `repeating-linear-gradient(0deg, ${c.dark} 0px, ${c.dark} 6px, ${c.stripe} 6px, ${c.stripe} 12px)`;
+    }
     return c.light;
 }
 
