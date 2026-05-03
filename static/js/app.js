@@ -323,7 +323,7 @@ function renderPitchPlayer(sp, xPct, topPct) {
             <div class="player-card fpl-card" onclick="${clickHandler}" style="--shirt-dark:${gradient};--shirt-light:${gradientLight}">
                 ${captainBadge}
                 ${injured}
-                <div class="fpl-shirt" style="background:${gradient}"></div>
+                <div class="fpl-shirt" style="background-image:url(${shirtIcon(teamName)})"></div>
                 <div class="fpl-player-name">${escapeHtml(sp.player?.name || '?')}</div>
                 <div class="fpl-player-team">${escapeHtml(teamName)}</div>
                 <div class="fpl-player-points">${points}</div>
@@ -345,7 +345,7 @@ function renderBench(squad) {
             <div class="bench-slot" onclick="showPlayerMenu(${sp.id}, ${sp.player_id})">
                 <div class="bench-slot-num">SUB ${idx + 1}</div>
                 <div class="player-card fpl-card bench-card">
-                    <div class="fpl-shirt" style="background:${gradient}"></div>
+                    <div class="fpl-shirt" style="background-image:url(${shirtIcon(teamName)})"></div>
                     <div class="fpl-player-name">${escapeHtml(sp.player?.name || '?')}</div>
                     <div class="fpl-player-team">${escapeHtml(teamName)}</div>
                     <div class="fpl-player-points">${sp.gw_points != null ? sp.gw_points : '–'}</div>
@@ -1396,7 +1396,7 @@ function renderDreamRow(players, top) {
             <div class="pitch-slot" style="left:${x}%">
                 <div class="player-card fpl-card" style="--shirt-dark:${gradient};--shirt-light:${gradientLight}">
                     ${captain}
-                    <div class="fpl-shirt" style="background:${gradient}"></div>
+                    <div class="fpl-shirt" style="background-image:url(${shirtIcon(teamName)})"></div>
                     <div class="fpl-player-name">${escapeHtml(p.name)}</div>
                     <div class="fpl-player-team">${escapeHtml(teamName)}</div>
                     <div class="fpl-player-points">${p.points} pts</div>
@@ -1573,49 +1573,39 @@ function formatTime(iso) {
     return new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 }
 
-// Real IOM Premier League club kit colours + patterns (source: Wikipedia)
-// pattern: 'solid' | 'stripes' (vertical) | 'hoops' (horizontal)
+// Real IOM Premier League club kit SVG icons (source: Wikipedia)
 const CLUB_COLORS = {
-    'Ayre United':        { dark: '#E07000', light: '#FFB347', pattern: 'stripes', stripe: '#1a1a1a' },
-    'Braddan':            { dark: '#2850A0', light: '#6088D0', pattern: 'solid' },
-    'Corinthians':        { dark: '#333333', light: '#FFFFFF', pattern: 'solid' },
-    'DHSOB':              { dark: '#1B3580', light: '#FFFFFF', pattern: 'stripes', stripe: '#FFFFFF' },
-    'Foxdale':            { dark: '#1040A0', light: '#FFFFFF', pattern: 'stripes', stripe: '#FFFFFF' },
-    'Laxey':              { dark: '#006400', light: '#FFFFFF', pattern: 'stripes', stripe: '#FFFFFF' },
-    'Onchan':             { dark: '#1030A0', light: '#FFD700', pattern: 'solid' },
-    'Peel':               { dark: '#C41E1E', light: '#FFFFFF', pattern: 'stripes', stripe: '#FFFFFF' },
-    'Ramsey':             { dark: '#1838A8', light: '#FFFFFF', pattern: 'stripes', stripe: '#FFFFFF' },
-    'Rushen United':      { dark: '#E0C830', light: '#1a1a1a', pattern: 'hoops', stripe: '#1a1a1a' },
-    'St Johns':           { dark: '#1E3A8A', light: '#FFD700', pattern: 'stripes', stripe: '#FFD700' },
-    'St Johns United':    { dark: '#1E3A8A', light: '#FFD700', pattern: 'stripes', stripe: '#FFD700' },
-    'St Marys':           { dark: '#1A7A1A', light: '#FFD700', pattern: 'solid' },
-    'Union Mills':        { dark: '#800020', light: '#87CEEB', pattern: 'solid' },
-    'Marown':             { dark: '#1A4A80', light: '#FFFFFF', pattern: 'stripes', stripe: '#FFFFFF' },
+    'Ayre United':       { svg: '/static/img/shirts/Ayre-United.svg', base: '#FF8C00', accent: '#FF8C00' },
+    'Braddan':           { svg: '/static/img/shirts/Braddan.svg', base: '#1B3A8C', accent: '#1B3A8C' },
+    'Corinthians':       { svg: '/static/img/shirts/Corinthians.svg', base: '#FFFFFF', accent: '#FFFFFF' },
+    'DHSOB':             { svg: '/static/img/shirts/DHSOB.svg', base: '#1B3580', accent: '#FFFFFF' },
+    'Foxdale':           { svg: '/static/img/shirts/Foxdale.svg', base: '#1B4090', accent: '#FFFFFF' },
+    'Laxey':             { svg: '/static/img/shirts/Laxey.svg', base: '#006400', accent: '#FFFFFF' },
+    'Onchan':            { svg: '/static/img/shirts/Onchan.svg', base: '#FFD700', accent: '#1B3580' },
+    'Peel':              { svg: '/static/img/shirts/Peel.svg', base: '#C41E1E', accent: '#FFFFFF' },
+    'Ramsey':            { svg: '/static/img/shirts/Ramsey.svg', base: '#1B3A8C', accent: '#FFFFFF' },
+    'Rushen United':     { svg: '/static/img/shirts/Rushen-United.svg', base: '#FFD700', accent: '#1a1a1a' },
+    'St Johns':          { svg: '/static/img/shirts/St-Johns.svg', base: '#1B3A8C', accent: '#FFD700' },
+    'St Johns United':   { svg: '/static/img/shirts/St-Johns-United.svg', base: '#1B3A8C', accent: '#FFD700' },
+    'St Marys':          { svg: '/static/img/shirts/St-Marys.svg', base: '#1A7A1A', accent: '#FFD700' },
+    'Union Mills':       { svg: '/static/img/shirts/Union-Mills.svg', base: '#800020', accent: '#87CEEB' },
+    'Marown':            { svg: '/static/img/shirts/Marown.svg', base: '#1B3A8C', accent: '#FFFFFF' },
 };
 
-// FPL-style team shirt background using real club colours + patterns
+// Get SVG shirt icon path for a team
+function shirtIcon(name) {
+    const c = CLUB_COLORS[name];
+    return c ? c.svg : '/static/img/shirts/default.svg';
+}
+
+// Fallback: get base color for a team (used for backgrounds, etc.)
 function shirtGradient(name) {
     const c = CLUB_COLORS[name];
-    if (!c) return '#555555';
-    if (c.pattern === 'stripes') {
-        return `repeating-linear-gradient(90deg, ${c.dark} 0px, ${c.dark} 6px, ${c.stripe} 6px, ${c.stripe} 12px)`;
-    }
-    if (c.pattern === 'hoops') {
-        return `repeating-linear-gradient(0deg, ${c.dark} 0px, ${c.dark} 6px, ${c.stripe} 6px, ${c.stripe} 12px)`;
-    }
-    return c.dark;
+    return c ? c.base : '#555555';
 }
 function shirtGradientLight(name) {
     const c = CLUB_COLORS[name];
-    if (!c) return '#888888';
-    // Light variant uses the same pattern but with adjusted colors
-    if (c.pattern === 'stripes') {
-        return `repeating-linear-gradient(90deg, ${c.dark} 0px, ${c.dark} 6px, ${c.stripe} 6px, ${c.stripe} 12px)`;
-    }
-    if (c.pattern === 'hoops') {
-        return `repeating-linear-gradient(0deg, ${c.dark} 0px, ${c.dark} 6px, ${c.stripe} 6px, ${c.stripe} 12px)`;
-    }
-    return c.light;
+    return c ? c.accent : '#888888';
 }
 
 // ===== INIT =====

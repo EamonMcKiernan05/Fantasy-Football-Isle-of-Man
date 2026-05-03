@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <clipPath id="shirt-Braddan">
+      <path d="M12,8 L16,16 L16,24 L8,28 L8,56 L56,56 L56,28 L48,24 L48,16 L52,8 L44,6 L40,16 L24,16 L20,6 L12,8 Z"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#shirt-Braddan)">
+    <rect x="0" y="0" width="64" height="64" fill="#1B3A8C"/>
+    <rect x="0" y="0" width="64" height="64" fill="none" stroke="#000" stroke-width="0.5" opacity="0.3"/>
+  </g>
+  <path d="M12,8 L16,16 L16,24 L8,28 L8,56 L56,56 L56,28 L48,24 L48,16 L52,8 L44,6 L40,16 L24,16 L20,6 L12,8 Z" fill="none" stroke="#000" stroke-width="0.5" opacity="0.3"/>
+</svg>

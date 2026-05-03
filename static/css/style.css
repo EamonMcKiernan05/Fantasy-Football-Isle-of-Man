@@ -453,31 +453,22 @@ body {
     position: relative;
 }
 
-/* Jersey shirt - larger, more prominent */
+/* Jersey shirt - SVG icons */
 .fpl-shirt {
     width: 64px;
     height: 64px;
-    clip-path: polygon(15% 0%, 25% 8%, 75% 8%, 85% 0%, 100% 18%, 92% 28%, 92% 100%, 8% 100%, 8% 28%, 0% 18%);
     position: relative;
     transition: transform 0.15s;
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
 }
 
 .fpl-card:hover .fpl-shirt {
     transform: scale(1.08);
 }
 
-/* Collar detail */
-.fpl-shirt::after {
-    content: '';
-    position: absolute;
-    top: 8%;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 30%;
-    height: 12%;
-    background: rgba(255,255,255,0.25);
-    border-radius: 0 0 50% 50%;
-}
+/* Collar detail removed - SVG shirts have their own shape */
 
 /* Player name below shirt */
 .fpl-player-name {
