@@ -1,13 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
   <defs>
-    <clipPath id="shirt-DHSOB">
+    <clipPath id="shirt-default">
       <path d="M16,4 L4,14 L0,32 L8,36 L14,56 L50,56 L56,36 L64,32 L60,14 L48,4 L40,2 L32,8 L24,2 Z"/>
     </clipPath>
   </defs>
-  <g clip-path="url(#shirt-DHSOB)">
-    <rect x="0" y="0" width="64" height="64" fill="#1B3580"/>
+  <g clip-path="url(#shirt-default)">
+    <rect x="0" y="0" width="64" height="64" fill="#999"/>
   </g>
   <path d="M16,4 L4,14 L0,32 L8,36 L14,56 L50,56 L56,36 L64,32 L60,14 L48,4 L40,2 L32,8 L24,2 Z" fill="none" stroke="#333" stroke-width="0.6" opacity="0.3"/>
-  <path d="M24,2 Q32,8 40,2" fill="none" stroke="#333" stroke-width="0.5" opacity="0.2"/>
 </svg>

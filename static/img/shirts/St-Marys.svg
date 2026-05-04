@@ -2,12 +2,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
   <defs>
     <clipPath id="shirt-St-Marys">
-      <path d="M12,8 L16,16 L16,24 L8,28 L8,56 L56,56 L56,28 L48,24 L48,16 L52,8 L44,6 L40,16 L24,16 L20,6 L12,8 Z"/>
+      <path d="M16,4 L4,14 L0,32 L8,36 L14,56 L50,56 L56,36 L64,32 L60,14 L48,4 L40,2 L32,8 L24,2 Z"/>
     </clipPath>
   </defs>
   <g clip-path="url(#shirt-St-Marys)">
     <rect x="0" y="0" width="64" height="64" fill="#1A7A1A"/>
-    <rect x="0" y="0" width="64" height="64" fill="none" stroke="#000" stroke-width="0.5" opacity="0.3"/>
   </g>
-  <path d="M12,8 L16,16 L16,24 L8,28 L8,56 L56,56 L56,28 L48,24 L48,16 L52,8 L44,6 L40,16 L24,16 L20,6 L12,8 Z" fill="none" stroke="#000" stroke-width="0.5" opacity="0.3"/>
+  <path d="M16,4 L4,14 L0,32 L8,36 L14,56 L50,56 L56,36 L64,32 L60,14 L48,4 L40,2 L32,8 L24,2 Z" fill="none" stroke="#333" stroke-width="0.6" opacity="0.3"/>
+  <path d="M24,2 Q32,8 40,2" fill="none" stroke="#333" stroke-width="0.5" opacity="0.2"/>
 </svg>
