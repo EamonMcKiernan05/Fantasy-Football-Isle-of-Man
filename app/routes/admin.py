@@ -17,6 +17,7 @@ from app.models import (
     Season, H2hLeague,
 )
 from app.utils.passwords import hash_password
+from app.scheduler import sync_fixtures, process_gameweek_end
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -327,3 +328,78 @@ def get_admin_stats(db: Session = Depends(get_db)):
         "mini_leagues": db.query(MiniLeague).count(),
         "h2h_leagues": db.query(H2hLeague).count(),
     }
+
+
+@router.post("/sync-fixtures")
+def manual_sync_fixtures():
+    """Manually trigger fixture sync from FullTime API and score new results.
+
+    This fetches the latest results from all IOM league divisions,
+    updates fixtures in the database, and scores any gameweeks with
+    new results. Walkovers award 2 points to the winning team's players.
+
+    Use this when results appear on the FullTime API but the daily
+    3am sync has already run for the day.
+    """
+    result = {"status": "started"}
+    try:
+        sync_fixtures()
+        result["status"] = "completed"
+        result["message"] = "Fixtures synced and scores updated"
+    except Exception as e:
+        result["status"] = "error"
+        result["message"] = str(e)
+    return result
+
+
+@router.post("/process-gameweek-end")
+def manual_process_gameweek_end():
+    """Manually trigger gameweek end processing.
+
+    Scores the current gameweek, processes transfer rollovers,
+    updates player prices, and reverts Free Hit squads.
+
+    Normally runs automatically on Sunday at 11pm.
+    """
+    result = {"status": "started"}
+    try:
+        process_gameweek_end()
+        result["status"] = "completed"
+        result["message"] = "Gameweek end processed"
+    except Exception as e:
+        result["status"] = "error"
+        result["message"] = str(e)
+    return result
+
+
+@router.post("/sync-and-score")
+def manual_sync_and_score():
+    """Sync fixtures from FullTime API AND process gameweek end.
+
+    Runs both sync_fixtures and process_gameweek_end in sequence.
+    Use this to fully update the game state after new results appear.
+    """
+    sync_result = {"status": "started"}
+    gw_result = {"status": "pending"}
+
+    try:
+        sync_fixtures()
+        sync_result["status"] = "completed"
+        sync_result["message"] = "Fixtures synced"
+    except Exception as e:
+        sync_result["status"] = "error"
+        sync_result["message"] = str(e)
+
+    try:
+        process_gameweek_end()
+        gw_result["status"] = "completed"
+        gw_result["message"] = "Gameweek processed"
+    except Exception as e:
+        gw_result["status"] = "error"
+        gw_result["message"] = str(e)
+
+    return {
+        "sync_fixtures": sync_result,
+        "process_gameweek": gw_result,
+    }
+

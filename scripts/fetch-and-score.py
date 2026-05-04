@@ -4,18 +4,23 @@
 This script is designed to be run as a cron job. No agent involvement needed.
 
 Pipeline:
-1. Find current active gameweek
+1. Find current active gameweek (or all unscored GWs)
 2. Fetch results from FullTime API
-3. Update fixtures with scores
+3. Update fixtures with scores (including walkovers)
 4. Generate PlayerGameweekPoints records
-5. Close and score the gameweek
+5. Score the gameweek (including transfer hits)
 6. Update team standings and player season stats
 7. If all fixtures played, prepare next gameweek
+
+Walkover handling:
+- Fixtures with played=True but no scores award 2 points to all players
+  from both teams (since the FA awards a win but we can't determine winner)
 
 Usage:
     python scripts/fetch-and-score.py              # Run once
     python scripts/fetch-and-score.py --gw 36       # Target specific GW
     python scripts/fetch-and-score.py --dry-run     # Preview without changes
+    python scripts/fetch-and-score.py --force       # Force rescore even if scored
 
 Cron example (every 6 hours):
     0 */6 * * * cd /home/eamon/Fantasy-Football-Isle-of-Man && source venv/bin/activate && python scripts/fetch-and-score.py >> logs/fetch-and-score.log 2>&1
@@ -94,7 +99,10 @@ def get_current_gameweek(db: Session) -> Optional[Gameweek]:
 
 def fetch_results(db: Session, target_gw: Optional[int] = None) -> int:
     """Fetch results from FullTime API and update fixtures.
-    
+
+    Also detects walkovers: fixtures where the score string doesn't contain
+    actual goals (e.g., "W.O." or empty score but marked as played).
+
     Returns number of fixtures updated.
     """
     try:
@@ -105,15 +113,13 @@ def fetch_results(db: Session, target_gw: Optional[int] = None) -> int:
         return 0
 
     updated = 0
+    walkovers = 0
     for r in league_results:
         home_raw = r.get("homeTeam", "")
         away_raw = r.get("awayTeam", "")
         home_name = clean_team_name(home_raw)
         away_name = clean_team_name(away_raw)
         home_score, away_score = parse_score(r.get("score", ""))
-
-        if home_score is None or away_score is None:
-            continue
 
         # Find matching fixture
         fixture = db.query(Fixture).filter(
@@ -138,26 +144,40 @@ def fetch_results(db: Session, target_gw: Optional[int] = None) -> int:
         # Get GW ID
         gw_id = fixture.gameweek_id
 
-        # Update fixture
-        old_home = fixture.home_score
-        old_away = fixture.away_score
-        old_played = fixture.played
+        # Check for walkover
+        score_str = r.get("score", "")
+        is_walkover = home_score is None or away_score is None
 
-        fixture.home_score = home_score
-        fixture.away_score = away_score
-        fixture.played = True
+        if is_walkover:
+            # Walkover: mark as played but don't set scores
+            if not fixture.played:
+                fixture.played = True
+                walkovers += 1
+                print(f"  Walkover detected: {home_raw} vs {away_raw} (score: '{score_str}')")
+        else:
+            # Normal result
+            old_home = fixture.home_score
+            old_away = fixture.away_score
+            old_played = fixture.played
 
-        if old_home != home_score or old_away != away_score or not old_played:
-            updated += 1
+            fixture.home_score = home_score
+            fixture.away_score = away_score
+            fixture.played = True
+
+            if old_home != home_score or old_away != away_score or not old_played:
+                updated += 1
 
     db.flush()
-    return updated
+    print(f"  Fetched: {updated} results, {walkovers} walkovers")
+    return updated + walkovers
 
 
 def generate_player_gameweek_points(db: Session, gw_id: int) -> int:
     """Generate PlayerGameweekPoints for all players in a gameweek.
-    
+
     Estimates individual stats from team-level fixture results.
+    For walkovers (played=True but no scores), awards 2 points to all players.
+
     Returns number of records created.
     """
     fixtures = db.query(Fixture).filter(
@@ -170,100 +190,150 @@ def generate_player_gameweek_points(db: Session, gw_id: int) -> int:
         return 0
 
     created = 0
+    walkover_count = 0
     for fixture in fixtures:
-        for team_id, goals_scored, goals_conceded, is_home in [
-            (fixture.home_team_id, fixture.home_score or 0, fixture.away_score or 0, True),
-            (fixture.away_team_id, fixture.away_score or 0, fixture.home_score or 0, False),
-        ]:
-            if team_id is None:
-                continue
+        is_walkover = fixture.home_score is None or fixture.away_score is None
 
-            team_players = db.query(Player).filter(
-                Player.team_id == team_id,
-                Player.is_active == True,
-            ).all()
+        if is_walkover:
+            walkover_count += 1
+            print(f"  Walkover: {fixture.home_team_name} vs {fixture.away_team_name} - awarding 2 pts")
 
-            for player in team_players:
-                # Skip if already scored
-                existing = db.query(PlayerGameweekPoints).filter(
-                    PlayerGameweekPoints.player_id == player.id,
-                    PlayerGameweekPoints.gameweek_id == gw_id,
-                ).first()
-                if existing:
+            # Award 2 points to all players from both teams
+            home_team = db.query(Team).filter(Team.name == fixture.home_team_name).first()
+            away_team = db.query(Team).filter(Team.name == fixture.away_team_name).first()
+
+            for team, is_home in [(home_team, True), (away_team, False)]:
+                if not team:
                     continue
 
-                # Estimate individual stats
-                apps = player.apps or 1
-                player_goals = max(0, int((player.goals or 0) * (goals_scored / max(5, player.goals or 5))))
-                player_assists = max(0, int((player.assists or 0) * (goals_scored / 5)))
+                opponent = fixture.away_team_name if is_home else fixture.home_team_name
+                team_players = db.query(Player).filter(
+                    Player.team_id == team.id,
+                    Player.is_active == True,
+                ).all()
 
-                # Cap per-GW goals at reasonable levels
-                player_goals = min(player_goals, goals_scored)
-                player_assists = min(player_assists, goals_scored)
+                for player in team_players:
+                    existing = db.query(PlayerGameweekPoints).filter(
+                        PlayerGameweekPoints.player_id == player.id,
+                        PlayerGameweekPoints.gameweek_id == gw_id,
+                    ).first()
+                    if existing:
+                        continue
 
-                clean_sheet = (goals_conceded == 0)
+                    pgp = PlayerGameweekPoints(
+                        player_id=player.id,
+                        gameweek_id=gw_id,
+                        opponent_team=opponent,
+                        was_home=is_home,
+                        minutes_played=0,
+                        did_play=True,
+                        goals_scored=0,
+                        clean_sheet=False,
+                        goals_conceded=0,
+                        base_points=2,
+                        total_points=2,
+                        bps_score=0,
+                    )
+                    db.add(pgp)
+                    created += 1
+        else:
+            # Normal fixture with scores
+            for team_id, goals_scored, goals_conceded, is_home in [
+                (fixture.home_team_id, fixture.home_score or 0, fixture.away_score or 0, True),
+                (fixture.away_team_id, fixture.away_score or 0, fixture.home_score or 0, False),
+            ]:
+                if team_id is None:
+                    continue
 
-                # GK-specific stats
-                saves = 0
-                if player.position == "GK":
-                    saves = max(2, goals_conceded + random.randint(1, 4))
+                team_players = db.query(Player).filter(
+                    Player.team_id == team_id,
+                    Player.is_active == True,
+                ).all()
 
-                # Minutes played (80% full game, 20% sub)
-                minutes = 90 if random.random() < 0.8 else random.choice([30, 45, 60, 75])
+                for player in team_players:
+                    # Skip if already scored
+                    existing = db.query(PlayerGameweekPoints).filter(
+                        PlayerGameweekPoints.player_id == player.id,
+                        PlayerGameweekPoints.gameweek_id == gw_id,
+                    ).first()
+                    if existing:
+                        continue
 
-                # Calculate BPS
-                bps = calculate_bps(
-                    position=player.position,
-                    goals_scored=player_goals,
-                    assists=player_assists,
-                    clean_sheet=clean_sheet,
-                    goals_conceded=goals_conceded if player.position in ("GK", "DEF") else 0,
-                    saves=saves,
-                    minutes_played=minutes,
-                )
+                    # Estimate individual stats
+                    apps = player.apps or 1
+                    player_goals = max(0, int((player.goals or 0) * (goals_scored / max(5, player.goals or 5))))
+                    player_assists = max(0, int((player.assists or 0) * (goals_scored / 5)))
 
-                # Calculate points
-                points = calculate_player_points(
-                    position=player.position,
-                    goals_scored=player_goals,
-                    assists=player_assists,
-                    clean_sheet=clean_sheet and player.position in ("GK", "DEF", "MID"),
-                    goals_conceded=goals_conceded if player.position in ("GK", "DEF") else 0,
-                    saves=saves,
-                    minutes_played=minutes,
-                    bonus_points=0,  # Will be updated after BPS ranking
-                )
+                    # Cap per-GW goals at reasonable levels
+                    player_goals = min(player_goals, goals_scored)
+                    player_assists = min(player_assists, goals_scored)
 
-                # Determine opponent
-                if is_home:
-                    opponent = fixture.away_team_name
-                else:
-                    opponent = fixture.home_team_name
+                    clean_sheet = (goals_conceded == 0)
 
-                pgp = PlayerGameweekPoints(
-                    player_id=player.id,
-                    gameweek_id=gw_id,
-                    opponent_team=opponent,
-                    was_home=is_home,
-                    minutes_played=minutes,
-                    did_play=True,
-                    goals_scored=player_goals,
-                    assists=player_assists,
-                    clean_sheet=clean_sheet and player.position in ("GK", "DEF", "MID"),
-                    goals_conceded=goals_conceded if player.position in ("GK", "DEF") else 0,
-                    saves=saves,
-                    base_points=points,
-                    total_points=points,
-                    bps_score=bps,
-                    influence_gw=round(random.uniform(5, 25), 1),
-                    creativity_gw=round(random.uniform(5, 25), 1),
-                    threat_gw=round(random.uniform(5, 30), 1),
-                )
-                db.add(pgp)
-                created += 1
+                    # GK-specific stats
+                    saves = 0
+                    if player.position == "GK":
+                        saves = max(2, goals_conceded + random.randint(1, 4))
+
+                    # Minutes played (80% full game, 20% sub)
+                    minutes = 90 if random.random() < 0.8 else random.choice([30, 45, 60, 75])
+
+                    # Calculate BPS
+                    bps = calculate_bps(
+                        position=player.position,
+                        goals_scored=player_goals,
+                        assists=player_assists,
+                        clean_sheet=clean_sheet,
+                        goals_conceded=goals_conceded if player.position in ("GK", "DEF") else 0,
+                        saves=saves,
+                        minutes_played=minutes,
+                    )
+
+                    # Calculate points
+                    points = calculate_player_points(
+                        position=player.position,
+                        goals_scored=player_goals,
+                        assists=player_assists,
+                        clean_sheet=clean_sheet and player.position in ("GK", "DEF", "MID"),
+                        goals_conceded=goals_conceded if player.position in ("GK", "DEF") else 0,
+                        saves=saves,
+                        minutes_played=minutes,
+                        bonus_points=0,  # Will be updated after BPS ranking
+                    )
+
+                    # Determine opponent
+                    if is_home:
+                        opponent = fixture.away_team_name
+                    else:
+                        opponent = fixture.home_team_name
+
+                    pgp = PlayerGameweekPoints(
+                        player_id=player.id,
+                        gameweek_id=gw_id,
+                        opponent_team=opponent,
+                        was_home=is_home,
+                        minutes_played=minutes,
+                        did_play=True,
+                        goals_scored=player_goals,
+                        assists=player_assists,
+                        clean_sheet=clean_sheet and player.position in ("GK", "DEF", "MID"),
+                        goals_conceded=goals_conceded if player.position in ("GK", "DEF") else 0,
+                        saves=saves,
+                        base_points=points,
+                        total_points=points,
+                        bps_score=bps,
+                        influence_gw=round(random.uniform(5, 25), 1),
+                        creativity_gw=round(random.uniform(5, 25), 1),
+                        threat_gw=round(random.uniform(5, 30), 1),
+                    )
+                    db.add(pgp)
+                    created += 1
 
     # Award bonus points per fixture
     for fixture in fixtures:
+        if fixture.home_score is None or fixture.away_score is None:
+            continue  # Skip walkovers for bonus
+
         fixture_players = db.query(PlayerGameweekPoints).filter(
             PlayerGameweekPoints.gameweek_id == gw_id,
             PlayerGameweekPoints.opponent_team.like(f"%{fixture.home_team_name}%") |
@@ -280,6 +350,7 @@ def generate_player_gameweek_points(db: Session, gw_id: int) -> int:
                 created = created  # No new records, just updates
 
     db.flush()
+    print(f"  Created {created} player points ({walkover_count} walkovers)")
     return created
 
 

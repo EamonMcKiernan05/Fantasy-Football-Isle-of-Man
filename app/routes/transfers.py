@@ -97,7 +97,7 @@ def transfer_player(payload: dict, db: Session = Depends(get_db)):
             "budget_remaining": round(ft.budget_remaining, 1),
         }
 
-   # --- Add only (filling empty slot) ---
+    # --- Add only (filling empty slot) ---
     if player_in_id and not player_out_id:
         if squad_len >= SQUAD_LIMIT:
             raise HTTPException(status_code=400, detail=f"Squad full ({SQUAD_LIMIT} players). Drop a player first.")
@@ -134,9 +134,18 @@ def transfer_player(payload: dict, db: Session = Depends(get_db)):
         db.add(new_sp)
         ft.budget_remaining = round(ft.budget_remaining - player_in.price, 1)
 
-        # If squad is now full, increment transfers (but not the first 13 picks)
-        if squad_len + 1 == SQUAD_LIMIT:
-            pass  # No transfer cost when filling initial squad
+        # Count as transfer only if squad was already full (13 players)
+        # Initial squad building (fewer than 13 players) is free
+        is_wildcard_add = ft.active_chip == "wildcard"
+        is_free_hit_add = ft.active_chip == "free_hit"
+        if squad_len + 1 == SQUAD_LIMIT and not is_wildcard_add and not is_free_hit_add:
+            # Last slot fill - this is part of initial squad building, not a transfer
+            pass
+        elif squad_len >= SQUAD_LIMIT:
+            # Shouldn't reach here due to the check above, but just in case
+            ft.current_gw_transfers += 1
+            if ft.free_transfers > 0:
+                ft.free_transfers -= 1
 
         db.commit()
         return {
@@ -176,13 +185,15 @@ def transfer_player(payload: dict, db: Session = Depends(get_db)):
             ),
         )
 
-    # Transfer cost
+    # Transfer cost: consume free transfer or track for scoring hit
+    # In FPL, transfer hits are applied at scoring time, not immediately
+    # We track transfers in current_gw_transfers; scoring calculates the hit
+    # Free transfers CAN go negative to accurately reconstruct starting free count
     points_hit = 0
     if not is_wildcard and not is_free_hit:
-        if ft.free_transfers > 0:
-            ft.free_transfers -= 1
-        else:
-            points_hit = 4
+        ft.free_transfers -= 1
+        # Free transfers can go negative (e.g., -1 means 1 extra transfer beyond free)
+        # This allows scoring to correctly calculate: starting_free = free_transfers + current_gw_transfers
 
     # Carry over slot/captaincy
     new_sp = SquadPlayer(
@@ -316,16 +327,14 @@ def make_transfer(request: TransferRequest, db: Session = Depends(get_db)):
     # Calculate transfer costs
     is_wildcard = ft.active_chip == "wildcard"
     is_free_hit = ft.active_chip == "free_hit"
-    free_available = ft.free_transfers if is_wildcard or is_free_hit else ft.free_transfers
 
-    # If wildcard or free hit, no transfer cost
+    # In FPL, transfer hits are applied at scoring time, not immediately
+    # Free transfers CAN go negative to accurately reconstruct starting free count
     points_hit = 0
     if not is_wildcard and not is_free_hit:
-        points_hit = calculate_transfer_hit(
-            1,  # One transfer being made
-            ft.free_transfers,
-            is_wildcard=False,
-        )
+        ft.free_transfers -= 1
+        # Free transfers can go negative (e.g., -1 means 1 extra transfer beyond free)
+        # This allows scoring to correctly calculate: starting_free = free_transfers + current_gw_transfers
 
     # Update budget
     ft.budget_remaining += budget_change
@@ -333,12 +342,7 @@ def make_transfer(request: TransferRequest, db: Session = Depends(get_db)):
     # Update transfer counts
     ft.current_gw_transfers += 1
 
-    if not is_wildcard and not is_free_hit:
-        ft.free_transfers -= 1
-        if ft.free_transfers < 0:
-            ft.free_transfers = 0
-
-    # Update free transfers for next GW
+    # Update free transfers for next GW (preview only)
     ft.free_transfers_next_gw = calculate_free_transfers(
         ft.free_transfers,
         ft.current_gw_transfers,
@@ -565,7 +569,7 @@ def get_transfer_status(user_id: int, db: Session = Depends(get_db)):
     chip_status = get_chip_status(ft, current_gw.number if current_gw else 1)
 
     return {
-        "free_transfers": ft.free_transfers,
+        "free_transfers": max(0, ft.free_transfers),
         "free_transfers_next_gw": ft.free_transfers_next_gw,
         "current_gw_transfers": ft.current_gw_transfers,
         "max_transfers_per_gw": MAX_TRANSFERS_PER_GW,
