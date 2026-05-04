@@ -17,7 +17,7 @@ from typing import Optional, List, Dict
 class FullTimeAPIClient:
     """Client for the FullTime API (unofficial FA FullTime scraper)."""
 
-    BASE_URL = os.getenv("FULLTIME_API_BASE_URL", "https://faapi.jwhsolutions.co.uk/api")
+    BASE_URL = os.getenv("FULLTIME_API_BASE_URL", "http://localhost:5000/api")
     IOM_LEAGUE_ID = os.getenv("IOM_LEAGUE_ID", "9057188")
 
     DIVISIONS = {

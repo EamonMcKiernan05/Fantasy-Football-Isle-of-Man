@@ -48,9 +48,10 @@ from app.models import (
 )
 from app.scoring import calculate_player_points, calculate_bps, award_bonus_points
 
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-API_BASE = "https://faapi.jwhsolutions.co.uk/api"
+# Use local FullTime API (http://localhost:5000) instead of public API
+# The public API (faapi.jwhsolutions.co.uk) is often down/empty for IOM leagues
+# Local API must be running: cd ~/workspace/FullTimeAPI/FullTimeAPI && dotnet run
+LOCAL_API_BASE = "http://localhost:5000/api"
 DIV_PREMIER = "175685803"
 
 TEAM_NAME_MAP = {
@@ -71,8 +72,9 @@ TEAM_NAME_MAP = {
 
 
 def api_get(endpoint: str) -> list:
-    url = f"{API_BASE}/{endpoint}"
-    resp = req_lib.get(url, timeout=30, verify=False)
+    """Fetch data from local FullTime API."""
+    url = f"{LOCAL_API_BASE}/{endpoint}"
+    resp = req_lib.get(url, timeout=30)
     resp.raise_for_status()
     return resp.json()
 

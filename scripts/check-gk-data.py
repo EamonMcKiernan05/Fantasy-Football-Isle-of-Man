@@ -4,7 +4,7 @@ import json
 import urllib3
 urllib3.disable_warnings()
 
-results = requests.get('https://faapi.jwhsolutions.co.uk/api/Results/175685803', timeout=15, verify=False).json()
+results = requests.get('http://localhost:5000/api/Results/175685803', timeout=15, verify=False).json()
 
 # Look at first few matches
 for r in results[:5]:

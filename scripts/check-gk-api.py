@@ -16,7 +16,7 @@ possible_gks = [
     ("Aidan Pickering", "226996861"),
 ]
 
-API_BASE = "https://faapi.jwhsolutions.co.uk/api"
+API_BASE = "http://localhost:5000/api"
 
 for name, pid in possible_gks:
     try:

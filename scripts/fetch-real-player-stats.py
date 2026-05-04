@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fetch real player stats from FullTime API and update the database.
 
-The FullTime API endpoint: https://faapi.jwhsolutions.co.uk/api/player/{personID}
+The FullTime API endpoint: http://localhost:5000/api/player/{personID}
 Returns detailed player stats including goals, assists, appearances, clean sheets, etc.
 """
 import os
@@ -44,7 +44,7 @@ PLAYERS = [
     {"name": "James Callister", "personID": "474645333"},
 ]
 
-API_BASE = "https://faapi.jwhsolutions.co.uk/api"
+API_BASE = "http://localhost:5000/api"
 
 def fetch_player_stats(person_id: str) -> dict:
     """Fetch player stats from FullTime API."""

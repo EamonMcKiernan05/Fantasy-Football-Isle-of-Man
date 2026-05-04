@@ -24,7 +24,7 @@ from app.models import (
 from app.scoring import calculate_player_points
 from app.utils.passwords import hash_password
 
-API_BASE = "https://faapi.jwhsolutions.co.uk/api"
+API_BASE = "http://localhost:5000/api"
 
 TEAM_NAME_MAP = {
     "Peel Combination": "Peel", "Peel First": "Peel",

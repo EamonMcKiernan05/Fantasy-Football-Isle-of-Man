@@ -26,7 +26,7 @@ from app.models import (
 )
 from app.utils.passwords import hash_password
 
-API_BASE = "https://faapi.jwhsolutions.co.uk/api"
+API_BASE = "http://localhost:5000/api"
 DIV_PREMIER = "175685803"
 
 # Stat leaders pages (top 300 by appearances)
