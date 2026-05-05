@@ -12,7 +12,7 @@ from typing import Optional
 from app.database import get_db
 from app.models import (
     FantasyTeam, Gameweek, FantasyTeamHistory, SquadPlayer, Player,
-    GameweekStats, Transfer,
+    GameweekStats, Transfer, PlayerGameweekPoints,
 )
 
 router = APIRouter(prefix="/api/gameweek-history", tags=["gameweek-history"])
@@ -114,15 +114,15 @@ def get_gameweek_breakdown(
     total_bench = 0
 
     for sp in squad:
-        # Get player gameweek points
-        gwp = db.query(GameweekStats).filter(
-            GameweekStats.player_id == sp.player_id,
-            GameweekStats.gameweek_id == gameweek_id,
+        # Get player gameweek points from PlayerGameweekPoints (not GameweekStats)
+        pgp = db.query(PlayerGameweekPoints).filter(
+            PlayerGameweekPoints.player_id == sp.player_id,
+            PlayerGameweekPoints.gameweek_id == gameweek_id,
         ).first()
 
         player = db.query(Player).filter(Player.id == sp.player_id).first()
-        points = gwp.points if gwp else 0
-        did_play = gwp is not None and gwp.minutes_played > 0 if gwp else False
+        points = pgp.total_points if pgp else 0
+        did_play = pgp is not None and pgp.did_play if pgp else False
 
         breakdown = {
             "player_id": sp.player_id,
@@ -135,12 +135,12 @@ def get_gameweek_breakdown(
             "was_autosub": sp.was_autosub,
             "points": points,
             "did_play": did_play,
-            "minutes": gwp.minutes_played if gwp else 0,
-            "goals": gwp.goals if gwp else 0,
-            "assists": gwp.assists if gwp else 0,
-            "clean_sheets": gwp.clean_sheets if gwp else 0,
-            "saves": gwp.saves if gwp else 0,
-            "bonus": gwp.bps if gwp else 0,
+            "minutes": pgp.minutes_played if pgp else 0,
+            "goals": pgp.goals_scored if pgp else 0,
+            "assists": pgp.assists if pgp else 0,
+            "clean_sheets": 1 if pgp and pgp.clean_sheet else 0,
+            "saves": pgp.saves if pgp else 0,
+            "bonus": pgp.bonus_points if pgp else 0,
         }
 
         if sp.is_starting:
