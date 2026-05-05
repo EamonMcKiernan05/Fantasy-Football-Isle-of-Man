@@ -1,13 +1,12 @@
 """Simplified scoring engine for Fantasy Football Isle of Man.
 
 Scoring based on available FullTime API data:
-- Goals, appearances, minutes played, clean sheets, yellow/red cards, own goals
-- No assists, no saves, no defensive contributions, no BPS bonus points
-- No position-dependent scoring (all players score the same for each stat)
+- Goals, assists, appearances, minutes played, clean sheets, yellow/red cards, own goals
 - 24 gameweeks per season
 
 Scoring Rules:
 - Goal scored: +4
+- Assist: +2
 - Clean sheet: +3
 - Yellow card: -1
 - Red card: -3
@@ -27,6 +26,23 @@ MAX_PLAYERS_PER_CLUB = 3  # max 3 players from any single club
 TOTAL_SQUAD = 13
 TOTAL_STARTING = 10
 TOTAL_BENCH = 3
+
+# Scoring constants
+GOAL_POINTS = 4
+ASSIST_POINTS = 2  # Half of FPL value (FPL = 3, we use 2)
+CLEAN_SHEET_POINTS = 3
+MINUTES_60_PLUS_POINTS = 2
+MINUTES_UNDER_60_POINTS = 1
+YELLOW_CARD_POINTS = -1
+RED_CARD_POINTS = -3
+OWN_GOAL_POINTS = -2
+PENALTY_MISSED_POINTS = -2
+PENALTY_GOAL_BONUS = 2
+PENALTY_SAVE_POINTS = 5
+SAVES_PER_POINT = 3
+DEFENSIVE_CONTRIBUTION_THRESHOLD = 10
+DEFENSIVE_CONTRIBUTION_POINTS = 2
+GOALS_CONCEDED_PER_PENALTY = 2
 
 # Season configuration
 TOTAL_GAMEWEEKS = 24
@@ -68,6 +84,9 @@ def calculate_player_points(
 
     # Goals (simplified: all positions score 4 per goal)
     points += goals_scored * 4
+
+    # Assists (2 points per assist)
+    points += assists * 2
 
     # Penalty goal bonus
     if was_penalty_goal:
