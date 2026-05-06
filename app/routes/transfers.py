@@ -378,11 +378,14 @@ def confirm_transfers(payload: dict, db: Session = Depends(get_db)):
     ft.current_gw_transfers += len(transfers_to_apply)
 
     # Calculate point hits for display
-    starting_free = free_transfers_before + ft.current_gw_transfers - len(transfers_to_apply)
-    if not is_wildcard and not is_free_hit and starting_free > 0:
-        extra = max(0, len(transfers_to_apply) - starting_free)
+    # starting_free = free_transfers at start of GW (before any transfers this GW)
+    # Formula: free_transfers_before + current_gw_transfers (before this batch)
+    starting_free = free_transfers_before + ft.current_gw_transfers
+    total_gw_transfers = ft.current_gw_transfers + len(transfers_to_apply)
+    if not is_wildcard and not is_free_hit:
+        extra = max(0, total_gw_transfers - starting_free)
     else:
-        extra = 0 if is_wildcard or is_free_hit else max(0, len(transfers_to_apply) - max(0, free_transfers_before))
+        extra = 0
     points_hit = extra * 4
 
     # Reset captain if needed
