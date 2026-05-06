@@ -271,32 +271,84 @@ def update_player_price(
     selected_by_change: float,
     gw_points: int,
     current_price: float,
+    position: str = "MID",
+    total_points_season: int = 0,
+    apps: int = 0,
 ) -> float:
     """Calculate player price change for a gameweek.
 
+    Performance-based pricing system inspired by FPL 2024/25 season:
+    - Gabriel (Arsenal DEF): 5.0m -> 6.0m over season (20 GWs)
+    - Watkins (AVL FWD): 7.5m -> 8.0m over season
+    - Palmer (Chelsea MID): 5.5m -> 10.0m over season (biggest riser)
+
+    Price changes are gradual (±0.1-0.2m per GW), based on:
+    1. Points scored this gameweek (primary driver)
+    2. Season form / PPG (secondary driver)
+    3. Position-based baselines
+
     Args:
-        selected_by_change: Change in selection percentage (can be negative)
-        gw_points: Points scored this gameweek (minor influence)
+        selected_by_change: Change in selection percentage (minor influence)
+        gw_points: Points scored this gameweek
         current_price: Current price in millions
+        position: Player position (GK, DEF, MID, FWD)
+        total_points_season: Total season points
+        apps: Total appearances
 
     Returns:
         New price capped to [1.0, 15.0]
     """
     change = 0.0
 
-    # Primary: ownership change drives price
-    if selected_by_change >= 50:
-        change += 0.2
-    elif selected_by_change >= 25:
-        change += 0.1
-    elif selected_by_change <= -50:
-        change -= 0.2
-    elif selected_by_change <= -25:
-        change -= 0.1
+    # Primary: gameweek performance drives price
+    # Thresholds by position
+    if position == "GK":
+        if gw_points >= 10:
+            change += 0.2
+        elif gw_points >= 6:
+            change += 0.1
+        elif gw_points <= 0:
+            change -= 0.1
+    elif position == "DEF":
+        if gw_points >= 12:
+            change += 0.2
+        elif gw_points >= 7:
+            change += 0.1
+        elif gw_points <= 0:
+            change -= 0.1
+    elif position == "MID":
+        if gw_points >= 12:
+            change += 0.2
+        elif gw_points >= 8:
+            change += 0.1
+        elif gw_points <= 0:
+            change -= 0.1
+    else:  # FWD
+        if gw_points >= 10:
+            change += 0.2
+        elif gw_points >= 6:
+            change += 0.1
+        elif gw_points <= 0:
+            change -= 0.1
 
-    # Secondary: high scorers get slight boost
-    if gw_points >= 20:
-        change += 0.1
+    # Secondary: season form / PPG bonus for consistent performers
+    if apps > 0:
+        ppg = total_points_season / apps
+        if ppg >= 10:  # Elite performer
+            change += 0.05
+        elif ppg >= 7:  # Good performer
+            change += 0.03
+        elif ppg < 2:  # Underperforming
+            change -= 0.05
+
+    # Minor: ownership change still has some effect (FPL-style)
+    if selected_by_change >= 30:
+        change += 0.05
+    elif selected_by_change <= -30:
+        change -= 0.05
+
+    # Clamp to reasonable per-GW change range (±0.3m max)
+    change = max(-0.3, min(0.3, change))
 
     new_price = current_price + change
     return round(max(1.0, min(15.0, new_price)), 1)

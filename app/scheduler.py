@@ -309,7 +309,7 @@ def _process_transfer_rollovers(db):
 
 
 def _update_player_prices(db, gw_id: int):
-    """Update player prices."""
+    """Update player prices based on performance."""
     total_teams = db.query(FantasyTeam).count()
     for player in db.query(Player).filter(Player.is_active == True).all():
         squad_count = db.query(SquadPlayer).filter(SquadPlayer.player_id == player.id).count()
@@ -322,8 +322,22 @@ def _update_player_prices(db, gw_id: int):
         if recent:
             player.form = scoring.calculate_form([p.total_points for p in recent])
 
+        # Get last GW points
+        last_gw = db.query(PlayerGameweekPoints).filter(
+            PlayerGameweekPoints.player_id == player.id,
+            PlayerGameweekPoints.gameweek_id == gw_id,
+        ).first()
+        gw_points = last_gw.total_points if last_gw else 0
+
         old = player.price
-        new = scoring.update_player_price(pct, player.form, player.price)
+        new = scoring.update_player_price(
+            selected_by_change=0,  # ownership change has minor influence
+            gw_points=gw_points,
+            current_price=player.price,
+            position=player.position or "MID",
+            total_points_season=player.total_points_season or 0,
+            apps=player.apps or 0,
+        )
         player.price_change = int(round((new - old) * 10))
         player.price = new
 

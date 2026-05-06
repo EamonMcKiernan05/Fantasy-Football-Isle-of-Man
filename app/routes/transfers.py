@@ -377,11 +377,12 @@ def confirm_transfers(payload: dict, db: Session = Depends(get_db)):
         ft.free_transfers = free_transfers_after
     ft.current_gw_transfers += len(transfers_to_apply)
 
-    # Calculate point hits for display
-    # starting_free = free_transfers at start of GW (before any transfers this GW)
-    # Formula: free_transfers_before + current_gw_transfers (before this batch)
+    # Calculate point hits for display (cumulative for this GW)
+    # starting_free = free_transfers_before + current_gw_transfers_after_update
+    # This gives us the total free transfers available at start of GW
+    # total_gw_transfers = cumulative transfers this GW (after this batch)
     starting_free = free_transfers_before + ft.current_gw_transfers
-    total_gw_transfers = ft.current_gw_transfers + len(transfers_to_apply)
+    total_gw_transfers = ft.current_gw_transfers
     if not is_wildcard and not is_free_hit:
         extra = max(0, total_gw_transfers - starting_free)
     else:

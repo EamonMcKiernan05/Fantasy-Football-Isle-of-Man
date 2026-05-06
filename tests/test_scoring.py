@@ -343,19 +343,19 @@ class TestPriceChanges:
     """Test player price calculations."""
 
     def test_price_increase(self):
-        new_price = scoring.update_player_price(60, 5.0, 5.0)
+        new_price = scoring.update_player_price(0, 12, 5.0, "MID", 50, 10)
         assert new_price > 5.0
 
     def test_price_decrease(self):
-        new_price = scoring.update_player_price(-60, 2.0, 5.0)
+        new_price = scoring.update_player_price(0, 0, 5.0, "MID", 10, 20)
         assert new_price <= 5.0
 
     def test_price_min(self):
-        new_price = scoring.update_player_price(-100, 0, 1.0)
+        new_price = scoring.update_player_price(0, 0, 1.0, "MID", 0, 0)
         assert new_price >= 1.0
 
     def test_price_max(self):
-        new_price = scoring.update_player_price(100, 10, 15.0)
+        new_price = scoring.update_player_price(0, 20, 15.0, "MID", 200, 20)
         assert new_price <= 15.0
 
 
