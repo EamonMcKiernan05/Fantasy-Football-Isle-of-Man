@@ -104,25 +104,43 @@ def get_gameweek_breakdown(
     if not history:
         raise HTTPException(status_code=404, detail="No history for this gameweek")
 
-    # Get squad players and their points
+    # Get current squad players
     squad = db.query(SquadPlayer).filter(
         SquadPlayer.fantasy_team_id == team_id
     ).all()
+
+    # Build lookup of players who actually played in this GW (have PGP records)
+    played_player_ids = set()
+    pgp_by_player = {}
+    for sp in squad:
+        pgp = db.query(PlayerGameweekPoints).filter(
+            PlayerGameweekPoints.player_id == sp.player_id,
+            PlayerGameweekPoints.gameweek_id == gameweek_id,
+        ).first()
+        if pgp and pgp.did_play:
+            played_player_ids.add(sp.player_id)
+        pgp_by_player[sp.player_id] = pgp
+
+    # Determine which players were actually starting in this GW:
+    # Use current is_starting flag, but also include players who played (had PGP)
+    # but are now on the bench (squad composition may have changed since GW)
+    # Players with no PGP record for this GW were not in the squad at that time
 
     player_breakdown = []
     total_starting = 0
     total_bench = 0
 
     for sp in squad:
-        # Get player gameweek points from PlayerGameweekPoints (not GameweekStats)
-        pgp = db.query(PlayerGameweekPoints).filter(
-            PlayerGameweekPoints.player_id == sp.player_id,
-            PlayerGameweekPoints.gameweek_id == gameweek_id,
-        ).first()
-
+        pgp = pgp_by_player.get(sp.player_id)
         player = db.query(Player).filter(Player.id == sp.player_id).first()
         points = pgp.total_points if pgp else 0
         did_play = pgp is not None and pgp.did_play if pgp else False
+        was_in_squad_then = pgp is not None  # Had any PGP record (even if didn't play)
+
+        # Determine if this player was starting in THIS gameweek
+        # If they played but are now on bench, they were starting then
+        # If they're currently starting and have PGP, they were starting then
+        was_starting_then = sp.is_starting or (did_play and not sp.is_starting)
 
         breakdown = {
             "player_id": sp.player_id,
@@ -130,11 +148,13 @@ def get_gameweek_breakdown(
             "position": player.position if player else "?",
             "team_name": player.team.name if player and player.team else "",
             "is_starting": sp.is_starting,
+            "was_starting_then": was_starting_then,
             "is_captain": sp.is_captain,
             "is_vice_captain": sp.is_vice_captain,
             "was_autosub": sp.was_autosub,
             "points": points,
             "did_play": did_play,
+            "was_in_squad_then": was_in_squad_then,
             "minutes": pgp.minutes_played if pgp else 0,
             "goals": pgp.goals_scored if pgp else 0,
             "assists": pgp.assists if pgp else 0,
@@ -143,9 +163,9 @@ def get_gameweek_breakdown(
             "bonus": pgp.bonus_points if pgp else 0,
         }
 
-        if sp.is_starting:
+        if was_starting_then:
             total_starting += points
-        else:
+        elif was_in_squad_then:
             total_bench += points
 
         player_breakdown.append(breakdown)

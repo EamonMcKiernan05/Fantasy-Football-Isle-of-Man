@@ -2460,6 +2460,183 @@ body {
     padding: 0;
 }
 
+/* === Transfer squad layout (FPL-style 3 rows) === */
+.ts-pitch { margin-bottom: 1rem; }
+.ts-pitch-field {
+    background: #2d7a3a;
+    border-radius: 8px;
+    padding: 0.5rem;
+    position: relative;
+    min-height: 260px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+.ts-pitch-label {
+    color: rgba(255,255,255,0.4);
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    padding: 0.2rem 0;
+    text-align: center;
+}
+.ts-pitch-row {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: center;
+    padding: 0.25rem 0;
+}
+.ts-pitch-slot {
+    flex: 0 0 auto;
+    width: 100px;
+    text-align: center;
+    cursor: pointer;
+}
+.ts-pitch-slot.empty {
+    border: 2px dashed rgba(255,255,255,0.3);
+    border-radius: 6px;
+    padding: 0.5rem;
+    color: rgba(255,255,255,0.5);
+}
+.ts-pitch-slot.selected {
+    outline: 2px solid #00ff87;
+    outline-offset: 2px;
+    border-radius: 6px;
+}
+.ts-pitch-slot.pending-out {
+    opacity: 0.6;
+}
+.ts-pitch-card {
+    background: var(--card-bg);
+    border-radius: 6px;
+    padding: 0.5rem;
+}
+.ts-pitch-card .pm-name { font-size: 0.8rem; }
+.ts-pitch-card .pm-team { font-size: 0.65rem; }
+.ts-pitch-card .pm-price { font-size: 0.7rem; }
+
+/* Bench section */
+.bench-section { margin-top: 1rem; }
+.bench-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.5rem;
+}
+.bench-section .bench-slot {
+    background: var(--card-bg);
+    border: 2px solid var(--border);
+    border-radius: 6px;
+    padding: 0.5rem;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, transform 0.2s;
+}
+.bench-section .bench-slot:hover { transform: translateY(-1px); }
+.bench-section .bench-slot.selected { border-color: #00ff87; box-shadow: 0 0 0 2px rgba(0,255,135,0.4); }
+.bench-section .bench-slot.pending-out { opacity: 0.6; }
+.bench-section .bench-slot.empty {
+    border-style: dashed;
+    color: var(--text-muted);
+    cursor: default;
+}
+
+/* Pending transfers bar */
+.pending-transfers-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    margin-top: 0.5rem;
+    background: rgba(0,255,135,0.1);
+    border: 1px solid rgba(0,255,135,0.3);
+    border-radius: 6px;
+}
+.pending-count {
+    font-weight: 600;
+    color: var(--text);
+}
+.btn-success {
+    background: #00c853;
+    color: #fff;
+    border: 0;
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.85rem;
+    transition: background 0.2s;
+}
+.btn-success:hover { background: #00a844; }
+
+/* Pending transfers list */
+.pending-transfers-list {
+    margin-top: 0.5rem;
+}
+.pending-transfer-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    margin-bottom: 0.25rem;
+    font-size: 0.85rem;
+}
+.transfer-out { color: #ff5252; font-weight: 600; }
+.transfer-in { color: #00c853; font-weight: 600; }
+.transfer-arrow { color: var(--text-muted); }
+
+/* Pending badge on player */
+.pending-badge {
+    display: inline-block;
+    background: #ff5252;
+    color: #fff;
+    font-size: 0.6rem;
+    font-weight: 700;
+    padding: 1px 4px;
+    border-radius: 3px;
+    margin-left: 4px;
+    text-transform: uppercase;
+}
+
+/* === Gameweek breakdown badges === */
+.not-played-badge {
+    display: inline-block;
+    background: #666;
+    color: #fff;
+    font-size: 0.6rem;
+    font-weight: 700;
+    padding: 1px 4px;
+    border-radius: 3px;
+    margin-left: 4px;
+    text-transform: uppercase;
+}
+.added-later-badge {
+    display: inline-block;
+    background: var(--text-muted);
+    color: #fff;
+    font-size: 0.6rem;
+    font-weight: 600;
+    padding: 1px 4px;
+    border-radius: 3px;
+    margin-left: 4px;
+}
+.player-breakdown-card.not-in-squad {
+    opacity: 0.6;
+    background: var(--bg);
+}
+.not-in-squad-section {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+}
+.not-in-squad-section h4 {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    margin-bottom: 0.5rem;
+}
+
 .transfer-list-header {
     display: grid;
     grid-template-columns: 2fr 1.4fr 0.6fr 0.7fr 0.6fr 0.6fr 0.7fr 1fr;

@@ -79,7 +79,7 @@ def list_players(
             id=p.id,
             name=p.name,
             team_id=p.team_id,
-            position=p.position,
+            position=p.position or "",
             price=p.price,
             apps=p.apps,
             goals=p.goals,

@@ -570,7 +570,8 @@ function renderTransferHeader() {
     if (!header || !currentTeam) return;
     const filled = currentSquad.length;
     const totalValue = currentSquad.reduce((s, sp) => s + (sp.player?.price || 0), 0);
-    const ft = currentTeam.free_transfers || 0;
+    const ft = Math.max(0, currentTeam.free_transfers || 0);
+    const pendingCount = pendingTransfers.length;
     header.innerHTML = `
         <div class="transfer-summary-grid">
             <div class="ts-cell"><div class="ts-label">Squad</div><div class="ts-value">${filled} / 13</div></div>
@@ -584,6 +585,21 @@ function renderTransferHeader() {
             <button class="btn btn-outline" onclick="resetTransferSelection()">Reset selection</button>
             <button class="btn btn-warn" onclick="confirmChipActivation('wildcard')" ${currentTeam.active_chip ? 'disabled' : ''}>Play Wildcard</button>
             <button class="btn btn-warn" onclick="confirmChipActivation('free_hit')" ${currentTeam.active_chip ? 'disabled' : ''}>Play Free Hit</button>
+        </div>
+        ${pendingCount > 0 ? `
+        <div class="pending-transfers-bar">
+            <span class="pending-count">${pendingCount} pending transfer${pendingCount > 1 ? 's' : ''}</span>
+            <button class="btn btn-success" onclick="confirmPendingTransfers()">Confirm Transfers</button>
+            <button class="btn btn-outline" onclick="clearPendingTransfers()">Clear All</button>
+        </div>` : ''}
+        <div id="pending-transfers-list" class="pending-transfers-list">
+            ${pendingTransfers.map((pt, i) => `
+                <div class="pending-transfer-row">
+                    <span class="transfer-out">- ${escapeHtml(pt.outPlayer?.name || '?')}</span>
+                    <span class="transfer-arrow">&rarr;</span>
+                    <span class="transfer-in">+ ${escapeHtml(pt.inPlayer?.name || '?')}</span>
+                    <button class="btn-x-sm" onclick="removePendingTransfer(${i})" title="Remove">&times;</button>
+                </div>`).join('')}
         </div>`;
 }
 
@@ -605,40 +621,71 @@ function renderTransferSquad() {
 
     let html = '<h3>Your squad (' + currentSquad.length + '/13)</h3>';
 
-    html += '<div class="squad-group"><h4>Starting 10</h4><div class="squad-row">';
-    for (let i = 0; i < 10; i++) {
-        const sp = starters[i];
+    // 3-4-3 layout for 10 starters
+    html += '<div class="ts-pitch"><div class="ts-pitch-field">';
+
+    // Row 1: 3 players
+    const row1 = starters.slice(0, 3);
+    html += '<div class="ts-pitch-row">';
+    for (let i = 0; i < 3; i++) {
+        const sp = row1[i];
         if (!sp) {
-            html += '<div class="squad-cell empty"><div class="empty-slot">+ player</div></div>';
+            html += '<div class="ts-pitch-slot empty" onclick="scrollToPlayerList()"><div class="empty-slot">+ player</div></div>';
         } else {
             const isSel = selectedOutPlayer && selectedOutPlayer.id === sp.id;
-            html += `
-                <div class="squad-cell ${isSel ? 'selected' : ''}" onclick="toggleOutPlayer(${sp.id})">
-                    <div class="player-mini">
-                        <div class="pm-name">${escapeHtml(sp.player?.name || '')}</div>
-                        <div class="pm-team">${escapeHtml(sp.player?.team?.name || '')}</div>
-                        <div class="pm-price">&#163;${(sp.player?.price || 0).toFixed(1)}m</div>
-                        <button class="btn-x" onclick="event.stopPropagation();dropPlayer(${sp.player_id})" title="Drop">&#215;</button>
-                    </div>
-                </div>`;
+            const isPending = pendingTransfers.some(pt => pt.outPlayer && pt.outPlayer.id === sp.id);
+            html += renderTsPitchSlot(sp, isSel, isPending);
         }
     }
+    html += '</div>';
+
+    // Row 2: 4 players
+    const row2 = starters.slice(3, 7);
+    html += '<div class="ts-pitch-row">';
+    for (let i = 0; i < 4; i++) {
+        const sp = row2[i];
+        if (!sp) {
+            html += '<div class="ts-pitch-slot empty" onclick="scrollToPlayerList()"><div class="empty-slot">+ player</div></div>';
+        } else {
+            const isSel = selectedOutPlayer && selectedOutPlayer.id === sp.id;
+            const isPending = pendingTransfers.some(pt => pt.outPlayer && pt.outPlayer.id === sp.id);
+            html += renderTsPitchSlot(sp, isSel, isPending);
+        }
+    }
+    html += '</div>';
+
+    // Row 3: 3 players
+    const row3 = starters.slice(7, 10);
+    html += '<div class="ts-pitch-row">';
+    for (let i = 0; i < 3; i++) {
+        const sp = row3[i];
+        if (!sp) {
+            html += '<div class="ts-pitch-slot empty" onclick="scrollToPlayerList()"><div class="empty-slot">+ player</div></div>';
+        } else {
+            const isSel = selectedOutPlayer && selectedOutPlayer.id === sp.id;
+            const isPending = pendingTransfers.some(pt => pt.outPlayer && pt.outPlayer.id === sp.id);
+            html += renderTsPitchSlot(sp, isSel, isPending);
+        }
+    }
+    html += '</div>';
+
     html += '</div></div>';
 
-    html += '<div class="squad-group"><h4>Bench</h4><div class="squad-row">';
+    // Bench section
+    html += '<div class="squad-group bench-section"><h4>Bench</h4><div class="bench-row">';
     for (let i = 0; i < 3; i++) {
         const sp = bench[i];
         if (!sp) {
-            html += '<div class="squad-cell empty"><div class="empty-slot">+ player</div></div>';
+            html += '<div class="bench-slot empty" onclick="scrollToPlayerList()"><div class="empty-slot">SUB ' + (i + 1) + '</div></div>';
         } else {
             const isSel = selectedOutPlayer && selectedOutPlayer.id === sp.id;
+            const isPending = pendingTransfers.some(pt => pt.outPlayer && pt.outPlayer.id === sp.id);
             html += `
-                <div class="squad-cell ${isSel ? 'selected' : ''}" onclick="toggleOutPlayer(${sp.id})">
+                <div class="bench-slot ${isSel ? 'selected' : ''} ${isPending ? 'pending-out' : ''}" onclick="showTransferPlayerMenu(${sp.id}, ${sp.player_id})">
                     <div class="player-mini">
-                        <div class="pm-name">${escapeHtml(sp.player?.name || '')}</div>
+                        <div class="pm-name">${escapeHtml(sp.player?.name || '')}${isPending ? ' <span class="pending-badge">OUT</span>' : ''}</div>
                         <div class="pm-team">${escapeHtml(sp.player?.team?.name || '')}</div>
                         <div class="pm-price">&#163;${(sp.player?.price || 0).toFixed(1)}m</div>
-                        <button class="btn-x" onclick="event.stopPropagation();dropPlayer(${sp.player_id})" title="Drop">&#215;</button>
                     </div>
                 </div>`;
         }
@@ -646,6 +693,73 @@ function renderTransferSquad() {
     html += '</div></div>';
 
     target.innerHTML = html;
+}
+
+function scrollToPlayerList() {
+    const el = document.getElementById('transfer-search-input');
+    if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.focus();
+    }
+}
+
+function renderTsPitchSlot(sp, isSelected, isPending) {
+    return `
+        <div class="ts-pitch-slot ${isSelected ? 'selected' : ''} ${isPending ? 'pending-out' : ''}" onclick="showTransferPlayerMenu(${sp.id}, ${sp.player_id})">
+            <div class="player-mini ts-pitch-card">
+                <div class="pm-name">${escapeHtml(sp.player?.name || '')}${isPending ? ' <span class="pending-badge">OUT</span>' : ''}</div>
+                <div class="pm-team">${escapeHtml(sp.player?.team?.name || '')}</div>
+                <div class="pm-price">&#163;${(sp.player?.price || 0).toFixed(1)}m</div>
+            </div>
+        </div>`;
+}
+
+// ===== TRANSFER PLAYER MENU (replace / remove) =====
+function showTransferPlayerMenu(squadId, playerId) {
+    const sp = currentSquad.find(s => s.id === squadId);
+    if (!sp) return;
+
+    const overlay = document.getElementById('modal-overlay');
+    const content = document.getElementById('modal-content');
+    content.style.display = 'block';
+    content.style.maxWidth = '380px';
+    content.innerHTML = `
+        <div class="player-menu-modal">
+            <h3>${escapeHtml(sp.player?.name || 'Player')}</h3>
+            <p class="muted">${escapeHtml(sp.player?.team?.name || '')} · £${(sp.player?.price || 0).toFixed(1)}m</p>
+            <div class="menu-actions">
+                <button class="btn btn-block btn-outline" data-action="replace" data-squad="${squadId}">Replace</button>
+                <button class="btn btn-block btn-outline" data-action="remove" data-player="${playerId}">Remove</button>
+                <button class="btn btn-block btn-secondary" data-action="close">Close</button>
+            </div>
+        </div>`;
+    overlay.style.display = 'block';
+
+    content.querySelectorAll('[data-action]').forEach(btn => {
+        btn.addEventListener('click', async function(e) {
+            e.stopPropagation();
+            const action = this.dataset.action;
+            const squadId = parseInt(this.dataset.squad);
+            const playerId = parseInt(this.dataset.player);
+
+            switch (action) {
+                case 'replace':
+                    selectedOutPlayer = currentSquad.find(s => s.id === squadId);
+                    closeModal();
+                    renderTransferSquad();
+                    showToast(`Selected ${sp.player?.name} to replace — now choose a replacement from the list below.`, 'success');
+                    return;
+                case 'remove':
+                    if (confirm(`Drop ${sp.player?.name} from your squad?`)) {
+                        await dropPlayer(playerId);
+                    }
+                    return;
+                case 'close':
+                    break;
+            }
+            closeModal();
+        });
+    });
 }
 
 // posLabel removed - no position display
@@ -729,6 +843,17 @@ function searchTransferPlayers() { renderTransferList(); }
 
 async function addPlayer(playerId) {
     if (!currentTeam) return;
+    // If squad is full, need to select out player first
+    if (currentSquad.length >= 13 && !selectedOutPlayer) {
+        showToast('Squad is full — select a player to drop first.', 'error');
+        return;
+    }
+    // If squad is full and out player selected, do swap (staged)
+    if (currentSquad.length >= 13 && selectedOutPlayer) {
+        await swapPlayer(playerId);
+        return;
+    }
+    // Squad not full yet — add directly (squad building phase)
     const r = await apiFetch('/transfers/player', {
         method: 'POST',
         body: JSON.stringify({ fantasy_team_id: currentTeam.id, player_in_id: playerId }),
@@ -766,27 +891,83 @@ async function dropPlayer(playerId) {
 }
 
 async function swapPlayer(playerInId) {
-    if (!currentTeam || !selectedOutPlayer) return;
-    const r = await apiFetch('/transfers/player', {
-        method: 'POST',
-        body: JSON.stringify({
-            fantasy_team_id: currentTeam.id,
-            player_in_id: playerInId,
-            player_out_id: selectedOutPlayer.player_id,
-        }),
-    });
-    const data = await r.json();
-    if (r.ok) {
-        const hit = data.points_hit ? ` (-${data.points_hit} pts)` : '';
-        showToast(`Swapped to ${data.player_in?.name}${hit}`, 'success');
-        selectedOutPlayer = null;
-        await loadTeam();
-        renderTransferHeader();
-        renderTransferSquad();
-        renderTransferList();
-    } else {
-        showToast(data.detail || 'Failed', 'error');
+    if (!currentTeam) return;
+    if (!selectedOutPlayer) {
+        showToast('Select a player to drop first.', 'error');
+        return;
     }
+    // Stage the transfer instead of applying immediately
+    const playerIn = transferPlayersCache.find(p => p.id === playerInId);
+    if (!playerIn) {
+        showToast('Player not found.', 'error');
+        return;
+    }
+    // Check if already staged
+    const existingIdx = pendingTransfers.findIndex(pt => pt.outPlayer && pt.outPlayer.id === selectedOutPlayer.id);
+    if (existingIdx >= 0) {
+        pendingTransfers[existingIdx].inPlayer = playerIn;
+    } else {
+        pendingTransfers.push({
+            outPlayer: selectedOutPlayer,
+            inPlayer: playerIn,
+        });
+    }
+    showToast(`Staged: ${selectedOutPlayer.player?.name} OUT, ${playerIn.name} IN`, 'success');
+    selectedOutPlayer = null;
+    renderTransferHeader();
+    renderTransferSquad();
+    renderTransferList();
+}
+
+// === Pending transfer management ===
+
+async function confirmPendingTransfers() {
+    if (!currentTeam || pendingTransfers.length === 0) return;
+    if (!confirm(`Confirm ${pendingTransfers.length} transfer${pendingTransfers.length > 1 ? 's' : ''}? Point hits will be applied at scoring time.`)) return;
+
+    const payload = {
+        fantasy_team_id: currentTeam.id,
+        pending_transfers: pendingTransfers.map(pt => ({
+            player_out_id: pt.outPlayer.player_id,
+            player_in_id: pt.inPlayer.id,
+        })),
+    };
+
+    try {
+        const r = await apiFetch('/transfers/confirm', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        });
+        const data = await r.json();
+        if (r.ok) {
+            const hitMsg = data.points_hit > 0 ? ` (-${data.points_hit} pts hit)` : '';
+            showToast(`${data.transfers_applied} transfer${data.transfers_applied > 1 ? 's' : ''} confirmed${hitMsg}`, 'success');
+            pendingTransfers = [];
+            await loadTeam();
+            renderTransferHeader();
+            renderTransferSquad();
+            renderTransferList();
+        } else {
+            showToast(data.detail || 'Failed to confirm transfers', 'error');
+        }
+    } catch (err) {
+        console.error('confirm transfers', err);
+        showToast('Error confirming transfers', 'error');
+    }
+}
+
+function clearPendingTransfers() {
+    pendingTransfers = [];
+    renderTransferHeader();
+    renderTransferSquad();
+    renderTransferList();
+}
+
+function removePendingTransfer(index) {
+    pendingTransfers.splice(index, 1);
+    renderTransferHeader();
+    renderTransferSquad();
+    renderTransferList();
 }
 
 async function autoFillSquad() {
@@ -1210,6 +1391,8 @@ async function loadGameweekBreakdown() {
             return;
         }
         const data = await r.json();
+        const playersInSquadThen = (data.player_breakdown || []).filter(p => p.was_in_squad_then);
+        const playersNotInSquadThen = (data.player_breakdown || []).filter(p => !p.was_in_squad_then);
         breakdown.innerHTML = `
             <div class="gw-breakdown-header">
                 <h3>GW ${data.gameweek} breakdown</h3>
@@ -1222,13 +1405,14 @@ async function loadGameweekBreakdown() {
                 </div>
             </div>
             <div class="player-breakdown-grid">
-                ${(data.player_breakdown || []).map(p => `
-                    <div class="player-breakdown-card ${p.is_starting ? 'starting' : 'bench'}">
+                ${playersInSquadThen.map(p => `
+                    <div class="player-breakdown-card ${p.was_starting_then ? 'starting' : 'bench'}">
                         <div class="pb-header">
                             <span class="pb-name">${escapeHtml(p.name)}</span>
                             ${p.is_captain ? '<span class="captain-badge-sm">C</span>' : ''}
                             ${p.is_vice_captain ? '<span class="vice-badge-sm">V</span>' : ''}
                             ${p.was_autosub ? '<span class="autosub-badge">AS</span>' : ''}
+                            ${p.did_play ? '' : '<span class="not-played-badge">DNB</span>'}
                         </div>
                         <div class="pb-meta muted">${escapeHtml(p.team_name || '')}</div>
                         <div class="pb-stats">
@@ -1240,6 +1424,19 @@ async function loadGameweekBreakdown() {
                         </div>
                         <div class="pb-points ${p.points > 0 ? 'positive' : ''}">${p.points} pts</div>
                     </div>`).join('')}
+            </div>
+            ${playersNotInSquadThen.length ? `
+            <div class="not-in-squad-section">
+                <h4>Not in squad at GW ${data.gameweek} (${playersNotInSquadThen.length})</h4>
+                ${playersNotInSquadThen.map(p => `
+                    <div class="player-breakdown-card not-in-squad">
+                        <div class="pb-header">
+                            <span class="pb-name">${escapeHtml(p.name)}</span>
+                            <span class="added-later-badge">Added later</span>
+                        </div>
+                        <div class="pb-meta muted">No data for this gameweek</div>
+                    </div>`).join('')}
+            </div>` : ''}
             </div>`;
     } catch (err) {
         console.error('breakdown', err);
