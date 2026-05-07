@@ -8,6 +8,12 @@ from datetime import datetime, date, timedelta
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.database import Base, engine, SessionLocal, init_db
+
+# In-memory test database (separate from production - prevents wiping real DB)
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+test_engine = create_engine("sqlite:///:memory:")
+TestSession = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 from app.models import (
     League, Division, Team, Player, Gameweek, Fixture,
     User, FantasyTeam, SquadPlayer, PlayerGameweekPoints,
@@ -529,64 +535,60 @@ class TestFreeTransfers:
 
 
 # --- Database Model Tests ---
-
 class TestModels:
-    """Test database models."""
+    """Test database models using in-memory test database."""
 
     def setup_method(self):
-        Base.metadata.drop_all(bind=engine)
-        Base.metadata.create_all(bind=engine)
+        Base.metadata.create_all(bind=test_engine)
+        self.db = TestSession()
 
+    def teardown_method(self):
+        self.db.close()
+        Base.metadata.drop_all(bind=test_engine)
+    
     def test_create_user(self):
-        db = SessionLocal()
         user = User(username="test", email="test@test.com", password_hash="hash")
-        db.add(user)
-        db.commit()
+        self.db.add(user)
+        self.db.commit()
         assert user.id is not None
-        db.close()
-
+    
     def test_create_team(self):
-        db = SessionLocal()
         league = League(ft_id="9057188", name="IOM Senior")
-        db.add(league)
-        db.flush()
+        self.db.add(league)
+        self.db.flush()
         division = Division(ft_id="123", name="Premier", league_id=league.id)
-        db.add(division)
-        db.flush()
+        self.db.add(division)
+        self.db.flush()
         team = Team(name="Laxey FC", division_id=division.id)
-        db.add(team)
-        db.commit()
+        self.db.add(team)
+        self.db.commit()
         assert team.id is not None
         assert team.name == "Laxey FC"
-        db.close()
 
     def test_create_player(self):
-        db = SessionLocal()
         league = League(ft_id="9057188", name="IOM Senior")
-        db.add(league)
-        db.flush()
+        self.db.add(league)
+        self.db.flush()
         division = Division(ft_id="123", name="Premier", league_id=league.id)
-        db.add(division)
-        db.flush()
+        self.db.add(division)
+        self.db.flush()
         team = Team(name="Laxey FC", division_id=division.id)
-        db.add(team)
-        db.flush()
+        self.db.add(team)
+        self.db.flush()
         player = Player(name="John Smith", team_id=team.id, position="FWD", price=5.5)
-        db.add(player)
-        db.commit()
+        self.db.add(player)
+        self.db.commit()
         assert player.id is not None
         assert player.position == "FWD"
         assert player.price == 5.5
-        db.close()
 
     def test_fantasy_team_chips(self):
-        db = SessionLocal()
         user = User(username="test", email="test@test.com", password_hash="hash")
-        db.add(user)
-        db.flush()
+        self.db.add(user)
+        self.db.flush()
         ft = FantasyTeam(user_id=user.id, name="Test FC", season="2025-26")
-        db.add(ft)
-        db.commit()
+        self.db.add(ft)
+        self.db.commit()
         # FPL 2025/26: All chips 2x per season (1 per half)
         assert ft.wildcard_first_half is False
         assert ft.wildcard_second_half is False
@@ -598,33 +600,28 @@ class TestModels:
         assert ft.triple_captain_second_half is False
         assert ft.free_transfers == 1
         assert ft.budget_remaining == 90.0  # £90m budget (reduced from £100m since no GKs)
-        db.close()
 
     def test_mini_league(self):
-        db = SessionLocal()
         user = User(username="admin", email="admin@test.com", password_hash="hash")
-        db.add(user)
-        db.flush()
+        self.db.add(user)
+        self.db.flush()
         ml = MiniLeague(name="Office League", code="ABC12345", season="2025-26", admin_user_id=user.id)
-        db.add(ml)
-        db.commit()
+        self.db.add(ml)
+        self.db.commit()
         assert ml.id is not None
         assert ml.code == "ABC12345"
-        db.close()
 
     def test_squad_player_constraints(self):
-        db = SessionLocal()
         user = User(username="test", email="test@test.com", password_hash="hash")
-        db.add(user)
-        db.flush()
+        self.db.add(user)
+        self.db.flush()
         ft = FantasyTeam(user_id=user.id, name="Test", season="2025-26")
-        db.add(ft)
-        db.flush()
+        self.db.add(ft)
+        self.db.flush()
         sp = SquadPlayer(fantasy_team_id=ft.id, player_id=1, position_slot=1, is_captain=True)
-        db.add(sp)
-        db.flush()
+        self.db.add(sp)
+        self.db.flush()
         assert sp.position_slot == 1
-        db.close()
 
 
 # --- API Integration Tests (with proper temp file DB fixture) ---
