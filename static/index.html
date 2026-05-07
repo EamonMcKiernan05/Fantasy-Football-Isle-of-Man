@@ -22,6 +22,7 @@
             <a href="#" onclick="navigate('leaderboard')" class="nav-link" data-page="leaderboard">Leaderboard</a>
             <a href="#" onclick="navigate('leagues')" class="nav-link" data-page="leagues">Leagues</a>
             <a href="#" onclick="navigate('notifications')" class="nav-link" data-page="notifications">Notifications</a>
+                <a href="#" onclick="navigate('rankings')" class="nav-link" data-page="rankings">Rankings</a>
             <a href="#" onclick="navigate('help')" class="nav-link" data-page="help">Help</a>
         </div>
         <div class="nav-auth" id="nav-auth"></div>
@@ -227,7 +228,56 @@
         </div>
 
         <!-- NOTIFICATIONS PAGE -->
-        <div id="page-notifications" class="page">
+        
+        <!-- RANKINGS PAGE -->
+        <div id="page-rankings" class="page">
+            <div class="rankings-header">
+                <h2>Player Rankings</h2>
+                <p class="section-desc">Top players by points, goals, assists, and form.</p>
+            </div>
+            <div class="rankings-filters">
+                <div class="filter-group">
+                    <label>Sort by:</label>
+                    <select id="rankings-sort" onchange="loadRankings()">
+                        <option value="points">Points</option>
+                        <option value="goals">Goals</option>
+                        <option value="assists">Assists</option>
+                        <option value="form">Form</option>
+                        <option value="price">Price</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>Position:</label>
+                    <select id="rankings-position" onchange="loadRankings()">
+                        <option value="">All</option>
+                        <option value="GK">GK</option>
+                        <option value="DEF">DEF</option>
+                        <option value="MID">MID</option>
+                        <option value="FWD">FWD</option>
+                    </select>
+                </div>
+            </div>
+            <div id="rankings-table" class="rankings-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Player</th>
+                            <th>Team</th>
+                            <th>Pos</th>
+                            <th>Pts</th>
+                            <th>Goals</th>
+                            <th>Assists</th>
+                            <th>Form</th>
+                            <th>Price</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rankings-body"></tbody>
+                </table>
+            </div>
+        </div>
+
+<div id="page-notifications" class="page">
             <div class="notifications-header">
                 <h2>Notifications</h2>
                 <button class="btn btn-secondary" onclick="markAllNotificationsRead()">Mark All Read</button>

@@ -125,6 +125,7 @@ function navigate(page) {
         case 'dream-team': loadDreamTeamPage(); break;
         case 'leagues': loadLeagues(); break;
         case 'notifications': loadNotifications(); break;
+        case 'rankings': loadRankings(); break;
     }
 }
 
@@ -1478,6 +1479,34 @@ async function loadLeaderboard() {
         if (currentUser) loadUserRank();
     } catch (err) { console.error('leaderboard', err); }
 }
+
+function loadRankings() {
+    const sortBy = document.getElementById('rankings-sort')?.value || 'points';
+    const position = document.getElementById('rankings-position')?.value || '';
+    const params = new URLSearchParams({ sort_by: sortBy });
+    if (position) params.set('position', position);
+    
+    apiFetch('/players/rankings?' + params.toString()).then(response => response.json()).then(data => {
+        const tbody = document.getElementById('rankings-body');
+        if (tbody) {
+            const rankings = data.rankings || [];
+            const rows = rankings.map(p => {
+                return '<tr onclick="showPlayerDetail(' + p.id + ')" style="cursor:pointer">' +
+                    '<td>' + p.rank + '</td>' +
+                    '<td><strong>' + p.name + '</strong></td>' +
+                    '<td>' + p.team + '</td>' +
+                    '<td><span class="pos-badge pos-' + p.position.toLowerCase() + '">' + p.position + '</span></td>' +
+                    '<td><strong>' + p.points + '</strong></td>' +
+                    '<td>' + p.goals + '</td>' +
+                    '<td>' + p.assists + '</td>' +
+                    '<td>' + (p.form || '-') + '</td>' +
+                    '<td>' + p.price + 'm</td></tr>';
+            }).join('');
+            tbody.innerHTML = rows;
+        }
+    }).catch(err => console.error('Rankings load error:', err));
+}
+
 
 function renderLeaderboard(data) {
     const container = document.getElementById('leaderboard-container');

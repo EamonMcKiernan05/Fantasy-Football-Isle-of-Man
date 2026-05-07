@@ -102,6 +102,55 @@ def list_players(
 
 
 @router.get("/{player_id}", response_model=PlayerDetailResponse)
+@router.get("/rankings")
+def get_rankings(
+    sort_by: str = Query("points", description="Sort by: points, goals, assists, form, price"),
+    position: Optional[str] = Query(None, description="Filter by position: GK, DEF, MID, FWD"),
+    limit: int = Query(50, description="Number of players to return"),
+    db: Session = Depends(get_db),
+):
+    """Get player rankings sorted by various criteria."""
+    query = db.query(Player).filter(Player.is_active == True)
+    
+    if position:
+        query = query.filter(Player.position == position)
+    
+    sort_map = {
+        "points": Player.total_points_season,
+        "goals": Player.goals,
+        "assists": Player.assists,
+        "form": Player.form,
+        "price": Player.price,
+    }
+    
+    sort_field = sort_map.get(sort_by, Player.total_points_season)
+    query = query.order_by(sort_field.desc()).limit(limit)
+    
+    players = query.all()
+    
+    rankings = []
+    for i, p in enumerate(players):
+        rankings.append({
+            "rank": i + 1,
+            "id": p.id,
+            "name": p.name,
+            "team": p.team.name if p.team else "",
+            "position": p.position,
+            "points": p.total_points_season,
+            "goals": p.goals,
+            "assists": p.assists,
+            "form": p.form,
+            "price": p.price,
+            "apps": p.apps,
+            "clean_sheets": p.clean_sheets,
+            "saves": p.saves,
+            "goals_conceded": p.goals_conceded,
+        })
+    
+    return {"rankings": rankings, "total": len(rankings)}
+
+
+
 def get_player(player_id: int, db: Session = Depends(get_db)):
     """Get player details."""
     player = db.query(Player).filter(Player.id == player_id).first()
@@ -398,3 +447,51 @@ def sync_players(db: Session = Depends(get_db)):
         "updated": updated,
         "teams_found": len(team_cache),
     }
+
+
+
+def get_rankings(
+    sort_by: str = Query("points", description="Sort by: points, goals, assists, form, price"),
+    position: Optional[str] = Query(None, description="Filter by position: GK, DEF, MID, FWD"),
+    limit: int = Query(50, description="Number of players to return"),
+    db: Session = Depends(get_db),
+):
+    """Get player rankings sorted by various criteria."""
+    query = db.query(Player).filter(Player.is_active == True)
+    
+    if position:
+        query = query.filter(Player.position == position)
+    
+    sort_map = {
+        "points": Player.total_points_season,
+        "goals": Player.goals,
+        "assists": Player.assists,
+        "form": Player.form,
+        "price": Player.price,
+    }
+    
+    sort_field = sort_map.get(sort_by, Player.total_points_season)
+    query = query.order_by(sort_field.desc()).limit(limit)
+    
+    players = query.all()
+    
+    rankings = []
+    for i, p in enumerate(players):
+        rankings.append({
+            "rank": i + 1,
+            "id": p.id,
+            "name": p.name,
+            "team": p.team.name if p.team else "",
+            "position": p.position,
+            "points": p.total_points_season,
+            "goals": p.goals,
+            "assists": p.assists,
+            "form": p.form,
+            "price": p.price,
+            "apps": p.apps,
+            "clean_sheets": p.clean_sheets,
+            "saves": p.saves,
+            "goals_conceded": p.goals_conceded,
+        })
+    
+    return {"rankings": rankings, "total": len(rankings)}
