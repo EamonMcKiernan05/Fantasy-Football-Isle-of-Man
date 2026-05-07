@@ -104,15 +104,94 @@ function updateNav() {
     }
 }
 
-// ===== NAVIGATION =====
+// ===== NAVIGATION (Carousel-style) =====
+const pageOrder = ['home', 'login', 'register', 'my-team', 'transfers', 'players', 'fixtures', 'gameweeks', 'history', 'leaderboard', 'dream-team', 'leagues', 'notifications', 'rankings', 'help'];
+let currentPageIndex = 0;
+let isTransitioning = false;
+
 function navigate(page) {
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    if (isTransitioning) return;
+
+    const fromIndex = currentPageIndex;
+    const toIndex = pageOrder.indexOf(page);
+    if (toIndex === -1) return; // Unknown page
+
+    const distance = Math.abs(toIndex - fromIndex);
+    const direction = toIndex > fromIndex ? 'left' : 'right';
+
+    // Calculate duration: faster for farther jumps (constant travel time feel)
+    // Single tab = ~400ms, multiple tabs = same duration but covers more ground
+    const duration = Math.min(400, 100 + distance * 80);
+
+    // Prevent transition for same page
+    if (toIndex === fromIndex) {
+        // Still load page data
+        loadPageData(page);
+        return;
+    }
+
+    isTransitioning = true;
+
+    const currentActive = document.querySelector('.page.active');
+    const targetPageEl = document.getElementById(`page-${page}`);
+
+    // Update nav link
     document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
-    const pageEl = document.getElementById(`page-${page}`);
-    if (pageEl) pageEl.classList.add('active');
     const navLink = document.querySelector(`.nav-link[data-page="${page}"]`);
     if (navLink) navLink.classList.add('active');
 
+    if (currentActive && targetPageEl) {
+        // Hide current page with slide-out
+        currentActive.classList.remove('active');
+        currentActive.classList.add(direction === 'left' ? 'slide-out-left' : 'slide-out-right');
+
+        // Show target page with slide-in
+        targetPageEl.style.display = 'block';
+        targetPageEl.classList.add('active', 'slide-in');
+
+        // Inline duration override
+        const animDuration = `${duration}ms`;
+        currentActive.style.animationDuration = animDuration;
+        targetPageEl.style.animationDuration = animDuration;
+
+        // After animation completes, clean up
+        const cleanup = () => {
+            currentActive.classList.remove('slide-out-left', 'slide-out-right');
+            currentActive.style.display = 'none';
+            currentActive.style.animationDuration = '';
+            targetPageEl.classList.remove('slide-in');
+            targetPageEl.style.animationDuration = '';
+            currentPageIndex = toIndex;
+            isTransitioning = false;
+        };
+
+        setTimeout(cleanup, duration + 20);
+    } else {
+        // Fallback for missing elements
+        document.querySelectorAll('.page').forEach(p => {
+            p.classList.remove('active', 'slide-out-left', 'slide-out-right', 'slide-in');
+            p.style.display = 'none';
+        });
+        if (targetPageEl) {
+            targetPageEl.style.display = 'block';
+            targetPageEl.classList.add('active', 'slide-in');
+            const animDuration = `${duration}ms`;
+            targetPageEl.style.animationDuration = animDuration;
+            setTimeout(() => {
+                targetPageEl.classList.remove('slide-in');
+                targetPageEl.style.animationDuration = '';
+            }, duration + 20);
+        }
+        currentPageIndex = toIndex;
+        isTransitioning = false;
+    }
+
+    // Load page data
+    loadPageData(page);
+}
+
+// Helper: load page data based on page name
+function loadPageData(page) {
     switch (page) {
         case 'home': loadHomePage(); break;
         case 'my-team': loadMyTeam(); break;
@@ -173,6 +252,7 @@ async function loadGameweekBanner() {
 
 function startCountdown(deadlineUnix) {
     if (countdownInterval) clearInterval(countdownInterval);
+    let lastText = '';
     countdownInterval = setInterval(() => {
         const el = document.getElementById('gw-countdown');
         if (!el) { clearInterval(countdownInterval); return; }
@@ -183,7 +263,15 @@ function startCountdown(deadlineUnix) {
             clearInterval(countdownInterval);
             return;
         }
-        el.textContent = formatCountdown(remaining);
+        const newText = formatCountdown(remaining);
+        if (newText !== lastText) {
+            el.textContent = newText;
+            // Pulse effect on change
+            el.classList.remove('pulse');
+            void el.offsetWidth; // Force reflow
+            el.classList.add('pulse');
+            lastText = newText;
+        }
     }, 1000);
 }
 
@@ -382,6 +470,10 @@ async function showPlayerMenu(squadId, playerId) {
             </div>
         </div>`;
     overlay.style.display = 'block';
+    requestAnimationFrame(() => {
+        content.classList.add('modal-show');
+        overlay.classList.add('visible');
+    });
 
     // Attach event listeners to buttons
     content.querySelectorAll('[data-action]').forEach(btn => {
@@ -419,14 +511,49 @@ async function showPlayerMenu(squadId, playerId) {
 function closeModal() {
     const overlay = document.getElementById('modal-overlay');
     const content = document.getElementById('modal-content');
-    if (overlay) overlay.style.display = 'none';
-    if (content) content.style.display = 'none';
+    if (content) {
+        content.classList.remove('modal-show');
+        content.classList.add('modal-hide');
+        setTimeout(() => {
+            content.style.display = 'none';
+            content.classList.remove('modal-hide');
+            content.style.transform = '';
+            if (overlay) {
+                overlay.classList.remove('visible');
+                setTimeout(() => { overlay.style.display = 'none'; }, 300);
+            }
+        }, 250);
+    } else if (overlay) {
+        overlay.style.display = 'none';
+    }
 }
 
 // Click on overlay (dark area) closes modal
 document.addEventListener('click', (e) => {
     if (e.target.id === 'modal-overlay') closeModal();
 });
+
+// Button ripple effect
+document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.btn');
+    if (btn) {
+        btn.classList.remove('ripple');
+        void btn.offsetWidth; // Force reflow
+        btn.classList.add('ripple');
+        setTimeout(() => btn.classList.remove('ripple'), 500);
+    }
+});
+
+// Helper: show modal with animation
+function showModal(overlay, content, maxWidth = null) {
+    content.style.display = 'block';
+    if (maxWidth) content.style.maxWidth = maxWidth;
+    overlay.style.display = 'block';
+    requestAnimationFrame(() => {
+        content.classList.add('modal-show');
+        overlay.classList.add('visible');
+    });
+}
 
 async function setCaptain(squadId) {
     const r = await apiFetch(`/users/${currentTeam.id}/captain/${squadId}`, { method: 'POST' });
@@ -531,7 +658,7 @@ function confirmChipActivation(chipType) {
                 <button class="btn btn-success" onclick="activateChip('${chipType}'); closeModal()">Confirm</button>
             </div>
         </div>`;
-    overlay.style.display = 'block';
+    showModal(overlay, content, '420px');
 }
 
 async function activateChip(chipType) {
@@ -734,7 +861,7 @@ function showTransferPlayerMenu(squadId, playerId) {
                 <button class="btn btn-block btn-secondary" data-action="close">Close</button>
             </div>
         </div>`;
-    overlay.style.display = 'block';
+    showModal(overlay, content, '380px');
 
     content.querySelectorAll('[data-action]').forEach(btn => {
         btn.addEventListener('click', async function(e) {
@@ -1762,7 +1889,7 @@ function renderPlayerDetailModal(data) {
                 </div>` : ''}
             <button class="btn btn-secondary btn-block" onclick="closeModal()" style="margin-top:1rem">Close</button>
         </div>`;
-    overlay.style.display = 'block';
+    showModal(overlay, content, '640px');
 }
 
 // ===== TOAST =====
