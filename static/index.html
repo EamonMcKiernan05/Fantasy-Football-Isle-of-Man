@@ -29,21 +29,8 @@
     </nav>
 
     <main class="container">
-        <!-- HOME PAGE -->
-        <div id="page-home" class="page active">
-            <div class="hero-banner">
-                <h1>Fantasy Football Isle of Man</h1>
-                <p>Build your dream team from the Isle of Man football leagues. Select 13 players, captain your best, compete in leagues.</p>
-                <div class="hero-actions">
-                    <button class="btn btn-primary btn-lg" onclick="navigate('register')">Create Your Team</button>
-                    <button class="btn btn-outline btn-lg" onclick="navigate('players')">Browse Players</button>
-                </div>
-            </div>
-            <div class="gw-banner" id="gw-banner"></div>
-        </div>
-
-        <!-- LOGIN -->
-        <div id="page-login" class="page">
+        <!-- Auth pages (not in carousel) -->
+        <div id="page-login" class="page page-overlay">
             <div class="auth-form">
                 <h2>Login</h2>
                 <form onsubmit="handleLogin(event)">
@@ -55,8 +42,7 @@
             </div>
         </div>
 
-        <!-- REGISTER -->
-        <div id="page-register" class="page">
+        <div id="page-register" class="page page-overlay">
             <div class="auth-form">
                 <h2>Create Account</h2>
                 <form onsubmit="handleRegister(event)">
@@ -67,6 +53,20 @@
                     <button type="submit" class="btn btn-primary btn-block">Create Account & Team</button>
                 </form>
             </div>
+        </div>
+
+        <div class="carousel-track" id="carousel-track">
+        <!-- HOME PAGE -->
+        <div id="page-home" class="page active">
+            <div class="hero-banner">
+                <h1>Fantasy Football Isle of Man</h1>
+                <p>Build your dream team from the Isle of Man football leagues. Select 13 players, captain your best, compete in leagues.</p>
+                <div class="hero-actions">
+                    <button class="btn btn-primary btn-lg" onclick="navigate('register')">Create Your Team</button>
+                    <button class="btn btn-outline btn-lg" onclick="navigate('players')">Browse Players</button>
+                </div>
+            </div>
+            <div class="gw-banner" id="gw-banner"></div>
         </div>
 
         <!-- MY TEAM -->
@@ -382,6 +382,7 @@
                 </ul>
             </div>
         </div>
+        </div><!-- /.carousel-track -->
     </main>
 
     <div class="toast-container" id="toast-container"></div>

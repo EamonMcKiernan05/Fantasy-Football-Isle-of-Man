@@ -104,90 +104,73 @@ function updateNav() {
     }
 }
 
-// ===== NAVIGATION (Carousel-style) =====
-const pageOrder = ['home', 'login', 'register', 'my-team', 'transfers', 'players', 'fixtures', 'gameweeks', 'history', 'leaderboard', 'dream-team', 'leagues', 'notifications', 'rankings', 'help'];
+// ===== NAVIGATION (True Carousel) =====
+const carouselPages = ['home', 'my-team', 'transfers', 'players', 'fixtures', 'gameweeks', 'history', 'leaderboard', 'dream-team', 'leagues', 'notifications', 'rankings', 'help'];
+const overlayPages = ['login', 'register'];
 let currentPageIndex = 0;
 let isTransitioning = false;
+const track = document.getElementById('carousel-track');
 
 function navigate(page) {
     if (isTransitioning) return;
 
+    const toIndex = carouselPages.indexOf(page);
+
+    // Handle overlay pages (login/register)
+    if (toIndex === -1) {
+        const overlayIdx = overlayPages.indexOf(page);
+        if (overlayIdx !== -1) {
+            // Hide carousel and overlays, show target overlay
+            document.querySelectorAll('.page-overlay').forEach(p => {
+                p.classList.remove('active');
+            });
+            const targetEl = document.getElementById(`page-${page}`);
+            if (targetEl) {
+                targetEl.classList.add('active');
+            }
+            // Update nav link
+            document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+            const navLink = document.querySelector(`.nav-link[data-page="${page}"]`);
+            if (navLink) navLink.classList.add('active');
+            currentPageIndex = carouselPages[0] === page ? 0 : currentPageIndex;
+            loadPageData(page);
+            return;
+        }
+        return; // Unknown page
+    }
+
     const fromIndex = currentPageIndex;
-    const toIndex = pageOrder.indexOf(page);
-    if (toIndex === -1) return; // Unknown page
-
     const distance = Math.abs(toIndex - fromIndex);
-    const direction = toIndex > fromIndex ? 'left' : 'right';
-
-    // Calculate duration: faster for farther jumps (constant travel time feel)
-    // Single tab = ~400ms, multiple tabs = same duration but covers more ground
-    const duration = Math.min(400, 100 + distance * 80);
 
     // Prevent transition for same page
     if (toIndex === fromIndex) {
-        // Still load page data
         loadPageData(page);
         return;
     }
 
     isTransitioning = true;
 
-    const currentActive = document.querySelector('.page.active');
-    const targetPageEl = document.getElementById(`page-${page}`);
+    // Hide any overlay pages
+    document.querySelectorAll('.page-overlay').forEach(p => {
+        p.classList.remove('active');
+    });
 
     // Update nav link
     document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
     const navLink = document.querySelector(`.nav-link[data-page="${page}"]`);
     if (navLink) navLink.classList.add('active');
 
-    if (currentActive && targetPageEl) {
-        // Hide current page with slide-out
-        currentActive.classList.remove('active');
-        currentActive.classList.add(direction === 'left' ? 'slide-out-left' : 'slide-out-right');
+    // Slide carousel track
+    const targetX = -(toIndex * 100);
+    track.style.transform = `translateX(${targetX}%)`;
 
-        // Show target page with slide-in
-        targetPageEl.style.display = 'block';
-        targetPageEl.classList.add('active', 'slide-in');
-
-        // Inline duration override
-        const animDuration = `${duration}ms`;
-        currentActive.style.animationDuration = animDuration;
-        targetPageEl.style.animationDuration = animDuration;
-
-        // After animation completes, clean up
-        const cleanup = () => {
-            currentActive.classList.remove('slide-out-left', 'slide-out-right');
-            currentActive.style.display = 'none';
-            currentActive.style.animationDuration = '';
-            targetPageEl.classList.remove('slide-in');
-            targetPageEl.style.animationDuration = '';
-            currentPageIndex = toIndex;
-            isTransitioning = false;
-        };
-
-        setTimeout(cleanup, duration + 20);
-    } else {
-        // Fallback for missing elements
-        document.querySelectorAll('.page').forEach(p => {
-            p.classList.remove('active', 'slide-out-left', 'slide-out-right', 'slide-in');
-            p.style.display = 'none';
-        });
-        if (targetPageEl) {
-            targetPageEl.style.display = 'block';
-            targetPageEl.classList.add('active', 'slide-in');
-            const animDuration = `${duration}ms`;
-            targetPageEl.style.animationDuration = animDuration;
-            setTimeout(() => {
-                targetPageEl.classList.remove('slide-in');
-                targetPageEl.style.animationDuration = '';
-            }, duration + 20);
-        }
-        currentPageIndex = toIndex;
-        isTransitioning = false;
-    }
+    currentPageIndex = toIndex;
 
     // Load page data
     loadPageData(page);
+
+    // Reset transitioning flag after animation
+    setTimeout(() => { isTransitioning = false; }, 520);
 }
 
 // Helper: load page data based on page name

@@ -153,71 +153,38 @@ body {
     overflow: hidden;
 }
 
-/* Carousel track holding all pages */
+/* Carousel track - slides horizontally through all pages */
 .carousel-track {
     display: flex;
     transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
     will-change: transform;
 }
 
-/* Pages within the carousel */
+/* Pages within the carousel - all visible side by side */
 .page {
-    display: none;
     min-width: 100%;
+    max-width: 100%;
     flex-shrink: 0;
 }
 
-.page.active {
+/* Overlay pages (login/register) - not in carousel */
+.page-overlay {
+    display: none;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    z-index: 50;
+}
+
+.page-overlay.active {
     display: block;
+    animation: overlay-fade-in 0.3s ease forwards;
 }
 
-/* Page slide-in animation */
-.page.slide-in {
-    animation: page-slide-in 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
-}
-
-.page.slide-out-left {
-    animation: page-slide-out-left 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
-}
-
-.page.slide-out-right {
-    animation: page-slide-out-right 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
-}
-
-@keyframes page-slide-in {
-    0% {
-        opacity: 0;
-        transform: translateX(60px);
-    }
-    60% {
-        transform: translateX(-8px);
-    }
-    100% {
-        opacity: 1;
-        transform: translateX(0);
-    }
-}
-
-@keyframes page-slide-out-left {
-    0% {
-        opacity: 1;
-        transform: translateX(0);
-    }
-    100% {
-        opacity: 0;
-        transform: translateX(-60px);
-    }
-}
-
-@keyframes page-slide-out-right {
-    0% {
-        opacity: 1;
-        transform: translateX(0);
-    }
-    100% {
-        opacity: 0;
-        transform: translateX(60px);
-    }
+@keyframes overlay-fade-in {
+    0% { opacity: 0; transform: translateY(10px); }
+    100% { opacity: 1; transform: translateY(0); }
 }
 
 /* ===== BUTTONS ===== */
