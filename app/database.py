@@ -39,3 +39,25 @@ def get_db():
         yield db
     finally:
         db.close()
+
+# === SAFETY NET: Prevent accidental database wipes ===
+# This overrides drop_all on the production engine to prevent data loss
+_original_drop_all = Base.metadata.drop_all
+
+def _safe_drop_all(*args, **kwargs):
+    """Safety wrapper that prevents drop_all on production database."""
+    import inspect
+    # Check if this is being called from test code with test_engine
+    caller = inspect.stack()[1]
+    caller_file = caller.filename if caller else ''
+    
+    # Allow drop_all ONLY from test files using test_engine
+    if 'test_' not in caller_file and 'test_engine' not in str(kwargs.get('bind', '')):
+        raise RuntimeError(
+            "SAFETY: drop_all() blocked on production database. "
+            "Database wipes are NEVER allowed in production. "
+            "If you need to reset the database, delete the data/fantasy_iom.db file manually."
+        )
+    _original_drop_all(*args, **kwargs)
+
+Base.metadata.drop_all = _safe_drop_all

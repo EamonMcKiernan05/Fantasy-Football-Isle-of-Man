@@ -2,7 +2,7 @@
 """Seed the Fantasy Football IOM database with real data from FullTime API.
 
 Usage:
-    python scripts/seed-real-data.py --clear    # Clear existing data first
+    python scripts/seed-real-data.py
     python scripts/seed-real-data.py             # Seed data
 """
 import os
@@ -156,17 +156,12 @@ def estimate_price(goals: int, apps: int, assists: int, position: str) -> float:
 
 def main():
     parser = argparse.ArgumentParser(description="Seed Fantasy Football IOM with real data")
-    parser.add_argument("--clear", action="store_true", help="Clear existing data first")
+    # NO --clear flag - database is NEVER wiped
     args = parser.parse_args()
 
     db: Session = SessionLocal()
 
-    if args.clear:
-        print("Clearing existing data...")
-        # Drop and recreate all tables
-        Base.metadata.drop_all(bind=engine)
-        Base.metadata.create_all(bind=engine)
-        print("Data cleared.")
+# SAFETY: Database is NEVER dropped or wiped
 
     # ---- Fetch real data ----
     print("\n=== Fetching data from FullTime API ===")
