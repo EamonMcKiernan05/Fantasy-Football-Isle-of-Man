@@ -270,6 +270,16 @@ class FantasyTeam(Base):
     bench_boost_used = Column(Boolean, default=False)
     triple_captain_used = Column(Boolean, default=False)
 
+    # Chip half-usage tracking (2x per season: GW 1-11 and GW 12-24)
+    wildcard_first_half = Column(Boolean, default=False)
+    wildcard_second_half = Column(Boolean, default=False)
+    free_hit_first_half = Column(Boolean, default=False)
+    free_hit_second_half = Column(Boolean, default=False)
+    bench_boost_first_half = Column(Boolean, default=False)
+    bench_boost_second_half = Column(Boolean, default=False)
+    triple_captain_first_half = Column(Boolean, default=False)
+    triple_captain_second_half = Column(Boolean, default=False)
+
     # Active chip this gameweek (can be cancelled before deadline)
     active_chip = Column(String(20), nullable=True)
 

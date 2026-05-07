@@ -597,7 +597,7 @@ class TestModels:
         assert ft.triple_captain_first_half is False
         assert ft.triple_captain_second_half is False
         assert ft.free_transfers == 1
-        assert ft.budget_remaining == 100.0
+        assert ft.budget_remaining == 90.0  # £90m budget (reduced from £100m since no GKs)
         db.close()
 
     def test_mini_league(self):

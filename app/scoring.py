@@ -49,6 +49,25 @@ TOTAL_GAMEWEEKS = 24
 SEASON_CUTOFF = 11  # First half GW 1-11, second half GW 12-24
 
 
+# Position-based scoring constants (FPL 2025/26 rules)
+GOAL_POINTS_BY_POSITION = {"GK": 10, "DEF": 6, "MID": 5, "FWD": 4}
+ASSIST_POINTS = 3  # All positions: 3 pts per assist
+CLEAN_SHEET_POINTS_BY_POSITION = {"GK": 4, "DEF": 4, "MID": 1, "FWD": 0}
+DEFENSIVE_CONTRIBUTION_THRESHOLD_BY_POSITION = {"DEF": 10, "MID": 12, "FWD": 12}
+
+# Valid formations (FPL style): GK always 1, DEF 3-5, MID 1-5, FWD 1-3
+VALID_FORMATIONS = [
+    {"name": "3-5-2", "gk": 1, "def": 3, "mid": 5, "fwd": 2},
+    {"name": "3-4-3", "gk": 1, "def": 3, "mid": 4, "fwd": 3},
+    {"name": "4-3-3", "gk": 1, "def": 4, "mid": 3, "fwd": 3},
+    {"name": "4-4-2", "gk": 1, "def": 4, "mid": 4, "fwd": 2},
+    {"name": "4-5-1", "gk": 1, "def": 4, "mid": 5, "fwd": 1},
+    {"name": "5-2-3", "gk": 1, "def": 5, "mid": 2, "fwd": 3},
+    {"name": "5-3-2", "gk": 1, "def": 5, "mid": 3, "fwd": 2},
+    {"name": "5-4-1", "gk": 1, "def": 5, "mid": 4, "fwd": 1},
+]
+
+
 def calculate_player_points(
     *,
     position: str = None,
@@ -69,11 +88,27 @@ def calculate_player_points(
 ) -> int:
     """Calculate points for a player in a single gameweek.
 
-    Uses simplified scoring based on available data.
-    Position parameter accepted for API compatibility but all positions
-    score the same (no position restrictions).
-    Returns the total points scored.
+    FPL 2025/26 rules with position-based scoring:
+    - Goals: GK=10, DEF=6, MID=5, FWD=4
+    - Assists: 3 for all positions
+    - Clean sheets: GK=4, DEF=4, MID=1, FWD=0
+    - Defensive contributions: DEF threshold=10, MID/FWD threshold=12
+    - Cards: yellow=-1, red=-3 (all positions)
+    - Own goal: -2
+    - Played 60+ min: +2, 1-59 min: +1
+    - Saves: +1 per 3 (GK)
+    - Penalty save: +5
+    - Goals conceded: -1 per 2
+    - Penalty goal bonus: +2
+    - Penalty missed: -2
+
+    Args:
+        position: Player position (GK, DEF, MID, FWD). Defaults to FWD if None.
+        ...other stats...
+    Returns:
+        Total points scored this gameweek.
     """
+    pos = position or "FWD"
     points = 0
 
     # Minutes played bonus
@@ -82,19 +117,21 @@ def calculate_player_points(
     elif minutes_played >= 1:
         points += 1  # Playing any minutes gives 1 pt
 
-    # Goals (simplified: all positions score 4 per goal)
-    points += goals_scored * 4
+    # Goals - position-based
+    goal_pts = GOAL_POINTS_BY_POSITION.get(pos, 4)
+    points += goals_scored * goal_pts
 
-    # Assists (2 points per assist)
-    points += assists * 2
+    # Assists - 3 for all positions
+    points += assists * ASSIST_POINTS
 
     # Penalty goal bonus
     if was_penalty_goal:
         points += 2
 
-    # Clean sheet
+    # Clean sheet - position-based
     if clean_sheet:
-        points += 3
+        cs_pts = CLEAN_SHEET_POINTS_BY_POSITION.get(pos, 0)
+        points += cs_pts
 
     # Saves (GK)
     points += saves // 3
@@ -116,8 +153,9 @@ def calculate_player_points(
     if penalties_missed:
         points -= 2 * penalties_missed
 
-    # Defensive contributions (simplified)
-    if defensive_contributions >= 10:
+    # Defensive contributions - position-based threshold
+    def_thresh = DEFENSIVE_CONTRIBUTION_THRESHOLD_BY_POSITION.get(pos, 999)
+    if defensive_contributions >= def_thresh:
         points += 2
 
     # Goals conceded penalty (every 2 goals = -1)
@@ -677,45 +715,85 @@ def calculate_bps(
 
 def award_bonus_points(
     players: list,
-    gameweek_id: int,
+    gameweek_id: int = None,
     db=None,
-) -> list:
-    """Award bonus points to top 3 players per gameweek based on BPS.
+) -> dict:
+    """Award bonus points based on BPS (FPL rules).
+
+    FPL bonus rules: 6 points total (3+2+1). Top 3 by BPS get 3, 2, 1.
+    Ties use standard competition ranking (1, 1, 3, 4...) - tied players
+    share the same bonus, next rank skips positions.
 
     Args:
-        players: List of PlayerGameweekPoints objects
-        gameweek_id: Gameweek ID for tracking
+        players: List of PlayerGameweekPoints objects or dicts with 'player_id' and 'bps'.
+        gameweek_id: Gameweek ID for tracking (optional)
         db: Database session (optional, for updating records)
 
     Returns:
-        List of players with bonus points awarded
+        Dict mapping player_id -> bonus_points awarded (3/2/1).
+        Only top players by BPS are included.
     """
-    # Calculate BPS for each player
+    # Build list of (player_id, bps_score)
+    scored = []
     for p in players:
-        p.bps_score = calculate_bps(
-            goals_scored=getattr(p, 'goals_scored', 0),
-            assists=getattr(p, 'assists', 0),
-            clean_sheet=getattr(p, 'clean_sheet', False),
-            saves=getattr(p, 'saves', 0),
-            penalties_saved=getattr(p, 'penalties_saved', 0),
-            yellow_card=getattr(p, 'yellow_card', False),
-            red_card=getattr(p, 'red_card', False),
-            goals_conceded=getattr(p, 'goals_conceded', 0),
-            minutes_played=getattr(p, 'minutes_played', 0),
-        )
+        pid = p.get("player_id") if isinstance(p, dict) else p.player_id
 
-    # Sort by BPS (descending), then by total points as tiebreaker
-    sorted_players = sorted(players, key=lambda p: (p.bps_score, getattr(p, 'total_points', 0)), reverse=True)
+        # Use pre-computed BPS if available, otherwise calculate
+        if isinstance(p, dict):
+            bps = p.get("bps", 0)
+        else:
+            bps = getattr(p, "bps_score", None)
+            if bps is None:
+                bps = calculate_bps(
+                    goals_scored=getattr(p, "goals_scored", 0),
+                    assists=getattr(p, "assists", 0),
+                    clean_sheet=getattr(p, "clean_sheet", False),
+                    saves=getattr(p, "saves", 0),
+                    penalties_saved=getattr(p, "penalties_saved", 0),
+                    yellow_card=getattr(p, "yellow_card", False),
+                    red_card=getattr(p, "red_card", False),
+                    goals_conceded=getattr(p, "goals_conceded", 0),
+                    minutes_played=getattr(p, "minutes_played", 0),
+                )
+            if hasattr(p, "bps_score"):
+                p.bps_score = bps
+        scored.append((pid, bps))
 
-    # Award bonus points: top 3 get 3, 2, 1
-    awarded = []
-    for i, p in enumerate(sorted_players[:3]):
-        bonus = 3 - i
-        p.bonus_points = bonus
-        p.total_points = getattr(p, 'base_points', 0) + bonus
-        awarded.append(p)
+    # Sort by BPS descending
+    scored.sort(key=lambda x: x[1], reverse=True)
 
-    return awarded
+    # Golf ranking: rank 1 = 3pts, rank 2 = 2pts, rank 3 = 1pt
+    # Ties share the same rank, next rank skips positions.
+    # Only players ranked 1-3 get bonus.
+    bonus_map = {1: 3, 2: 2, 3: 1}
+    bonus = {}
+    if not scored:
+        return bonus
+
+    rank = 1
+    i = 0
+    while i < len(scored):
+        pid, bps = scored[i]
+
+        # Find all players at this BPS level (ties)
+        tied_players = []
+        j = i
+        while j < len(scored) and scored[j][1] == bps:
+            tied_players.append(scored[j][0])
+            j += 1
+
+        # Award bonus if rank is within top 3
+        if rank in bonus_map:
+            for tied_pid in tied_players:
+                bonus[tied_pid] = bonus_map[rank]
+
+        rank += len(tied_players)  # Skip positions for ties
+        if rank > 3:
+            break  # No more bonus available
+
+        i = j
+
+    return bonus
 
 
 def validate_formation(formation: str) -> dict | None:
@@ -762,11 +840,14 @@ def validate_starting_xi(squad: list[dict], formation: dict = None) -> bool:
     """Validate a starting XI against formation requirements.
 
     Args:
-        squad: List of squad player dicts with 'position' and 'is_starting'
+        squad: List of squad player dicts. Supports two formats:
+            - Flat: {'position': 'GK', 'is_starting': True}
+            - Nested: {'player': {'position': 'GK'}, 'is_starting': True}
         formation: Dict with 'gk', 'def', 'mid', 'fwd' counts
 
     Returns:
-        True if valid, False otherwise
+        True if valid, False otherwise.
+        When formation is provided, uses strict matching (== not >=).
     """
     starters = [sp for sp in squad if sp.get("is_starting")]
 
@@ -776,15 +857,17 @@ def validate_starting_xi(squad: list[dict], formation: dict = None) -> bool:
 
     pos_counts = {"gk": 0, "def": 0, "mid": 0, "fwd": 0}
     for sp in starters:
-        pos = (sp.get("position") or "").lower()
+        # Handle both flat and nested dict formats
+        player_data = sp.get("player", {}) if isinstance(sp.get("player"), dict) else {}
+        pos = (player_data.get("position") or sp.get("position") or "").lower()
         if pos in pos_counts:
             pos_counts[pos] += 1
 
     return (
-        pos_counts["gk"] >= formation.get("gk", 1) and
-        pos_counts["def"] >= formation.get("def", 0) and
-        pos_counts["mid"] >= formation.get("mid", 0) and
-        pos_counts["fwd"] >= formation.get("fwd", 0)
+        pos_counts["gk"] == formation.get("gk", 1) and
+        pos_counts["def"] == formation.get("def", 0) and
+        pos_counts["mid"] == formation.get("mid", 0) and
+        pos_counts["fwd"] == formation.get("fwd", 0)
     )
 
 

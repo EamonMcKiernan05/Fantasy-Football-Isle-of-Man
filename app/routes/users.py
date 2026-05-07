@@ -19,6 +19,7 @@ from app.scoring import (
 )
 from app.utils.passwords import hash_password, verify_password
 from app.utils.squad import create_default_squad
+from app.auth import create_access_token, get_current_user_from_token
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
@@ -29,25 +30,12 @@ def get_current_user(
     db: Session = Depends(get_db)
 ):
     """Get current user and their fantasy team (used by frontend).
-    
-    The token format is: bearer-{user_id}-{username}
+
+    Accepts JWT Bearer tokens or legacy bearer-{user_id}-{username} format.
     """
-    # Parse token from Authorization header
-    token = authorization.replace("Bearer ", "") if authorization else None
-    if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    
-    # Token format: bearer-{user_id}-{username}
-    parts = token.split("-", 2)
-    if len(parts) < 3 or parts[0] != "bearer":
-        raise HTTPException(status_code=401, detail="Invalid token")
-    
-    user_id = int(parts[1])
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    ft = db.query(FantasyTeam).filter(FantasyTeam.user_id == user_id).first()
+    user = get_current_user_from_token(authorization, db)
+
+    ft = db.query(FantasyTeam).filter(FantasyTeam.user_id == user.id).first()
 
     team_data = None
     if ft:
@@ -371,7 +359,8 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
     db.refresh(ft)
 
     return {
-        "access_token": f"bearer-{new_user.id}-{new_user.username}",
+        "access_token": create_access_token(new_user.id, new_user.username),
+        "token_type": "bearer",
         "user": {
             "id": new_user.id,
             "username": new_user.username,
@@ -390,13 +379,14 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
 
 @router.post("/login")
 def login(username: Annotated[str, Form()], password: Annotated[str, Form()], db: Session = Depends(get_db)):
-    """Login a user."""
+    """Login a user and return a JWT access token."""
     user = db.query(User).filter(User.username == username).first()
     if not user or not verify_password(password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     return {
-        "access_token": f"bearer-{user.id}-{user.username}",
+        "access_token": create_access_token(user.id, user.username),
+        "token_type": "bearer",
         "user": {
             "id": user.id,
             "username": user.username,
