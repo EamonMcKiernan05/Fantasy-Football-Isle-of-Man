@@ -105,7 +105,7 @@ function updateNav() {
 }
 
 // ===== NAVIGATION (True Carousel) =====
-const carouselPages = ['home', 'my-team', 'transfers', 'players', 'fixtures', 'gameweeks', 'history', 'leaderboard', 'dream-team', 'leagues', 'notifications', 'rankings', 'help'];
+const carouselPages = ['home', 'my-team', 'transfers', 'players', 'fixtures', 'gameweeks', 'history', 'leaderboard', 'leagues', 'dream-team', 'rankings', 'notifications', 'help'];
 const overlayPages = ['login', 'register'];
 let currentPageIndex = 0;
 let isTransitioning = false;
