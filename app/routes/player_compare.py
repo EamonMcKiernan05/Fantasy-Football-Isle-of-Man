@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
-from app.database import get_db
+from app.database import get_db, get_bound_db
 from app.models import Player, Team, Gameweek, Fixture, GameweekStats
 
 router = APIRouter(prefix="/api/compare", tags=["player-compare"])
@@ -16,7 +16,7 @@ router = APIRouter(prefix="/api/compare", tags=["player-compare"])
 def compare_players(
     player_ids: str,
     gameweek_id: Optional[int] = Query(None, description="Specific GW to compare"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_bound_db),
 ):
     """Compare multiple players side by side.
 
@@ -107,7 +107,7 @@ def get_best_value_players(
     limit: int = Query(10, description="Number of players to return"),
     min_price: float = Query(4.0, description="Minimum price"),
     max_price: float = Query(8.0, description="Maximum price"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_bound_db),
 ):
     """Find best value players (points per million spent).
 

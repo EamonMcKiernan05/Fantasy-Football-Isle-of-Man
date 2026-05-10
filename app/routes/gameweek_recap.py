@@ -2,14 +2,14 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 
-from app.database import get_db
+from app.database import get_db, get_bound_db
 from app.models import Gameweek, PlayerGameweekPoints, Player, Fixture, FantasyTeamHistory
 
 router = APIRouter(prefix="/api/gameweeks", tags=["gameweek-recap"])
 
 
 @router.get("/{gw_id}/recap")
-def get_gameweek_recap(gw_id: int, db: Session = Depends(get_db)):
+def get_gameweek_recap(gw_id: int, db: Session = Depends(get_bound_db)):
     """Get a detailed recap of a completed gameweek."""
     gw = db.query(Gameweek).filter(Gameweek.id == gw_id).first()
     if not gw:

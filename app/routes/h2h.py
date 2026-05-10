@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 from typing import Optional, List
 
-from app.database import get_db
+from app.database import get_db, get_bound_db
 from app.models import (
     H2hLeague, H2hParticipant, H2hMatch, FantasyTeam, User, Gameweek,
 )
@@ -16,7 +16,7 @@ router = APIRouter(prefix="/api/h2h", tags=["h2h"])
 def list_h2h_leagues(
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_bound_db),
 ):
     """List H2H leagues with pagination."""
     total = db.query(H2hLeague).count()
@@ -49,7 +49,7 @@ def list_h2h_leagues(
 
 
 @router.get("/leagues/{league_id}")
-def get_h2h_league(league_id: int, db: Session = Depends(get_db)):
+def get_h2h_league(league_id: int, db: Session = Depends(get_bound_db)):
     """Get H2H league details."""
     league = db.query(H2hLeague).filter(H2hLeague.id == league_id).first()
     if not league:
@@ -103,7 +103,7 @@ def create_h2h_league(
     is_public: bool = True,
     format_type: str = "round_robin",
     user_id: int = None,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_bound_db),
 ):
     """Create a new H2H league."""
     import secrets
@@ -133,7 +133,7 @@ def create_h2h_league(
 def join_h2h_league(
     league_id: int,
     user_id: Optional[int] = Query(None),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_bound_db),
 ):
     """Join H2H league with code."""
     league = db.query(H2hLeague).filter(H2hLeague.id == league_id).first()
@@ -151,7 +151,7 @@ def join_h2h_league(
 def get_h2h_matches(
     league_id: int,
     gameweek: Optional[int] = Query(None),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_bound_db),
 ):
     """Get H2H matches for a league."""
     league = db.query(H2hLeague).filter(H2hLeague.id == league_id).first()
@@ -193,7 +193,7 @@ def get_h2h_matches(
 @router.get("/leagues/{league_id}/fixtures")
 def get_h2h_fixtures(
     league_id: int,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_bound_db),
 ):
     """Get all fixtures for H2H league."""
     league = db.query(H2hLeague).filter(H2hLeague.id == league_id).first()
@@ -228,7 +228,7 @@ def get_h2h_fixtures(
 @router.post("/leagues/{league_id}/generate-fixtures")
 def generate_h2h_fixtures(
     league_id: int,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_bound_db),
 ):
     """Generate round-robin fixtures for H2H league."""
     league = db.query(H2hLeague).filter(H2hLeague.id == league_id).first()
@@ -315,7 +315,7 @@ def generate_h2h_fixtures(
 def get_my_h2h_matches(
     league_id: int,
     user_id: Optional[int] = Query(None),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_bound_db),
 ):
     """Get current user's H2H matches."""
     league = db.query(H2hLeague).filter(H2hLeague.id == league_id).first()

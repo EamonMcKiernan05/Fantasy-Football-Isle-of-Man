@@ -5,7 +5,7 @@ from sqlalchemy import func
 from typing import List, Optional
 from datetime import datetime, date, timedelta
 
-from app.database import get_db
+from app.database import get_db, get_bound_db
 from app.models import Player, Team, Division, Gameweek, Fixture, PlayerGameweekPoints, SquadPlayer, FantasyTeam
 from app.schemas import PlayerResponse, PlayerDetailResponse, PlayerHistoryEntry
 from app import api_client
@@ -22,7 +22,7 @@ def list_players(
     min_price: Optional[float] = Query(None, description="Minimum price"),
     max_price: Optional[float] = Query(None, description="Maximum price"),
     order_by: str = Query("goals", description="Sort by: goals, points, price, apps"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_bound_db),
 ):
     """List all players with optional filters."""
     query = db.query(Player).filter(Player.is_active == True)
@@ -101,20 +101,19 @@ def list_players(
     return result
 
 
-@router.get("/{player_id}", response_model=PlayerDetailResponse)
 @router.get("/rankings")
 def get_rankings(
     sort_by: str = Query("points", description="Sort by: points, goals, assists, form, price"),
     position: Optional[str] = Query(None, description="Filter by position: GK, DEF, MID, FWD"),
     limit: int = Query(50, description="Number of players to return"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_bound_db),
 ):
     """Get player rankings sorted by various criteria."""
     query = db.query(Player).filter(Player.is_active == True)
-    
+
     if position:
         query = query.filter(Player.position == position)
-    
+
     sort_map = {
         "points": Player.total_points_season,
         "goals": Player.goals,
@@ -122,12 +121,12 @@ def get_rankings(
         "form": Player.form,
         "price": Player.price,
     }
-    
+
     sort_field = sort_map.get(sort_by, Player.total_points_season)
     query = query.order_by(sort_field.desc()).limit(limit)
-    
+
     players = query.all()
-    
+
     rankings = []
     for i, p in enumerate(players):
         rankings.append({
@@ -146,12 +145,55 @@ def get_rankings(
             "saves": p.saves,
             "goals_conceded": p.goals_conceded,
         })
-    
+
     return {"rankings": rankings, "total": len(rankings)}
 
 
+@router.get("/top")
+def get_top_players(
+    gameweek_id: Optional[int] = Query(None, description="Gameweek ID for top scorers"),
+    limit: int = Query(20, description="Number of players to return"),
+    db: Session = Depends(get_bound_db),
+):
+    """Get top scoring players."""
+    if gameweek_id:
+        subquery = (
+            db.query(
+                PlayerGameweekPoints.player_id,
+                func.sum(PlayerGameweekPoints.total_points).label("total_pts"),
+            )
+            .filter(PlayerGameweekPoints.gameweek_id == gameweek_id)
+            .group_by(PlayerGameweekPoints.player_id)
+            .order_by(func.sum(PlayerGameweekPoints.total_points).desc())
+            .limit(limit)
+            .subquery()
+        )
+        player_ids = [row.player_id for row in db.query(subquery).all()]
+        players = db.query(Player).filter(Player.id.in_(player_ids)).all()
+    else:
+        players = (
+            db.query(Player)
+            .filter(Player.is_active == True)
+            .order_by(Player.goals.desc())
+            .limit(limit)
+            .all()
+        )
 
-def get_player(player_id: int, db: Session = Depends(get_db)):
+    return [
+        {
+            "id": p.id,
+            "name": p.name,
+            "team": p.team.name if p.team else "",
+            "position": p.position,
+            "goals": p.goals,
+            "apps": p.apps,
+        }
+        for p in players
+    ]
+
+
+@router.get("/{player_id}", response_model=PlayerDetailResponse)
+def get_player(player_id: int, db: Session = Depends(get_bound_db)):
     """Get player details."""
     player = db.query(Player).filter(Player.id == player_id).first()
     if not player:
@@ -179,7 +221,7 @@ def get_player(player_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{player_id}/detail")
-def get_player_detail(player_id: int, db: Session = Depends(get_db)):
+def get_player_detail(player_id: int, db: Session = Depends(get_bound_db)):
     """Get enhanced player detail with form guide, GW history, and upcoming fixtures."""
     player = db.query(Player).filter(Player.id == player_id).first()
     if not player:
@@ -301,7 +343,7 @@ def get_player_detail(player_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{player_id}/history")
-def get_player_history(player_id: int, db: Session = Depends(get_db)):
+def get_player_history(player_id: int, db: Session = Depends(get_bound_db)):
     """Get player's gameweek history."""
     player = db.query(Player).filter(Player.id == player_id).first()
     if not player:
@@ -327,53 +369,8 @@ def get_player_history(player_id: int, db: Session = Depends(get_db)):
     return {"player_id": player_id, "player_name": player.name, "history": history}
 
 
-@router.get("/top")
-def get_top_players(
-    gameweek_id: Optional[int] = Query(None, description="Gameweek ID for top scorers"),
-    limit: int = Query(20, description="Number of players to return"),
-    db: Session = Depends(get_db),
-):
-    """Get top scoring players."""
-    if gameweek_id:
-        # Top scorers for a specific gameweek
-        subquery = (
-            db.query(
-                PlayerGameweekPoints.player_id,
-                func.sum(PlayerGameweekPoints.total_points).label("total_pts"),
-            )
-            .filter(PlayerGameweekPoints.gameweek_id == gameweek_id)
-            .group_by(PlayerGameweekPoints.player_id)
-            .order_by(func.sum(PlayerGameweekPoints.total_points).desc())
-            .limit(limit)
-            .subquery()
-        )
-        player_ids = [row.player_id for row in db.query(subquery).all()]
-        players = db.query(Player).filter(Player.id.in_(player_ids)).all()
-    else:
-        # Season top scorers
-        players = (
-            db.query(Player)
-            .filter(Player.is_active == True)
-            .order_by(Player.goals.desc())
-            .limit(limit)
-            .all()
-        )
-
-    return [
-        {
-            "id": p.id,
-            "name": p.name,
-            "team": p.team.name if p.team else "",
-            "position": p.position,
-            "goals": p.goals,
-            "apps": p.apps,
-        }
-        for p in players
-    ]
-
-
 @router.post("/sync")
-def sync_players(db: Session = Depends(get_db)):
+def sync_players(db: Session = Depends(get_bound_db)):
     """Sync players from manxfantasyfootball.com."""
     scraper = api_client.ManxFantasyFootballScraper()
     raw_players = scraper.scrape_all_leagues()
@@ -447,51 +444,3 @@ def sync_players(db: Session = Depends(get_db)):
         "updated": updated,
         "teams_found": len(team_cache),
     }
-
-
-
-def get_rankings(
-    sort_by: str = Query("points", description="Sort by: points, goals, assists, form, price"),
-    position: Optional[str] = Query(None, description="Filter by position: GK, DEF, MID, FWD"),
-    limit: int = Query(50, description="Number of players to return"),
-    db: Session = Depends(get_db),
-):
-    """Get player rankings sorted by various criteria."""
-    query = db.query(Player).filter(Player.is_active == True)
-    
-    if position:
-        query = query.filter(Player.position == position)
-    
-    sort_map = {
-        "points": Player.total_points_season,
-        "goals": Player.goals,
-        "assists": Player.assists,
-        "form": Player.form,
-        "price": Player.price,
-    }
-    
-    sort_field = sort_map.get(sort_by, Player.total_points_season)
-    query = query.order_by(sort_field.desc()).limit(limit)
-    
-    players = query.all()
-    
-    rankings = []
-    for i, p in enumerate(players):
-        rankings.append({
-            "rank": i + 1,
-            "id": p.id,
-            "name": p.name,
-            "team": p.team.name if p.team else "",
-            "position": p.position,
-            "points": p.total_points_season,
-            "goals": p.goals,
-            "assists": p.assists,
-            "form": p.form,
-            "price": p.price,
-            "apps": p.apps,
-            "clean_sheets": p.clean_sheets,
-            "saves": p.saves,
-            "goals_conceded": p.goals_conceded,
-        })
-    
-    return {"rankings": rankings, "total": len(rankings)}

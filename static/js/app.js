@@ -807,6 +807,37 @@ function renderTransferSquad() {
 }
 
 function scrollToPlayerList() {
+    // If squad is not full, try to auto-add cheapest available player
+    if (currentSquad.length < 13) {
+        if (transferPlayersCache.length === 0) {
+            // Cache not loaded yet - load it first
+            loadTransferPlayers().then(() => {
+                if (transferPlayersCache.length > 0) {
+                    const squadIds = new Set(currentSquad.map(sp => sp.player_id));
+                    const available = transferPlayersCache
+                        .filter(p => !squadIds.has(p.id))
+                        .sort((a, b) => a.price - b.price);
+                    if (available.length > 0) {
+                        addPlayer(available[0].id);
+                        return;
+                    }
+                }
+                // Fallback: scroll to search
+                const el = document.getElementById('transfer-search-input');
+                if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.focus(); }
+            });
+        } else {
+            const squadIds = new Set(currentSquad.map(sp => sp.player_id));
+            const available = transferPlayersCache
+                .filter(p => !squadIds.has(p.id))
+                .sort((a, b) => a.price - b.price);
+            if (available.length > 0) {
+                addPlayer(available[0].id);
+                return;
+            }
+        }
+    }
+    // Fallback: scroll to search
     const el = document.getElementById('transfer-search-input');
     if (el) {
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1124,7 +1155,11 @@ async function loadPlayers() {
     } catch (err) { console.error('players', err); }
 }
 
+let playersData = []; // Cache for client-side sorting
+let playersSortAsc = {};
+
 function renderPlayers(players) {
+    playersData = players;
     const container = document.getElementById('players-container');
     if (!container) return;
     container.innerHTML = `
@@ -1132,28 +1167,68 @@ function renderPlayers(players) {
             <table>
                 <thead>
                     <tr>
-                        <th>Name</th><th>Team</th>
-                        <th>Price</th><th>Pts</th><th>Goals</th><th>Assists</th><th>CS</th>
-                        <th>Form</th><th>%Sel</th>
+                        <th class="sortable" data-sort="name" onclick="sortPlayersTable('name')">Name ⇅</th>
+                        <th>Team</th>
+                        <th class="sortable" data-sort="price" onclick="sortPlayersTable('price')">Price ⇅</th>
+                        <th class="sortable" data-sort="total_points_season" onclick="sortPlayersTable('total_points_season')">Pts ⇅</th>
+                        <th class="sortable" data-sort="goals" onclick="sortPlayersTable('goals')">Goals ⇅</th>
+                        <th class="sortable" data-sort="assists" onclick="sortPlayersTable('assists')">Assists ⇅</th>
+                        <th class="sortable" data-sort="clean_sheets" onclick="sortPlayersTable('clean_sheets')">CS ⇅</th>
+                        <th class="sortable" data-sort="form" onclick="sortPlayersTable('form')">Form ⇅</th>
+                        <th class="sortable" data-sort="selected_by_percent" onclick="sortPlayersTable('selected_by_percent')">%Sel ⇅</th>
                     </tr>
                 </thead>
-                <tbody>
-                    ${players.map(p => `
-                        <tr onclick="showPlayerDetail(${p.id})">
-                            <td class="player-name">${escapeHtml(p.name)}</td>
-                            <td>${escapeHtml(p.team?.name || '')}</td>
-                            <td>£${p.price.toFixed(1)}m</td>
-                            <td>${p.total_points_season || 0}</td>
-                            <td>${p.goals || 0}</td>
-                            <td>${p.assists || 0}</td>
-                            <td>${p.clean_sheets || 0}</td>
-                            <td>${(p.form || 0).toFixed(1)}</td>
-                            <td>${(p.selected_by_percent || 0).toFixed(1)}%</td>
-                        </tr>
-                    `).join('')}
+                <tbody id="players-tbody">
+                    ${renderPlayerRows(players)}
                 </tbody>
             </table>
         </div>`;
+}
+
+function renderPlayerRows(players) {
+    return players.map(p => `
+        <tr onclick="showPlayerDetail(${p.id})">
+            <td class="player-name">${escapeHtml(p.name)}</td>
+            <td>${escapeHtml(p.team?.name || '')}</td>
+            <td>£${p.price.toFixed(1)}m</td>
+            <td>${p.total_points_season || 0}</td>
+            <td>${p.goals || 0}</td>
+            <td>${p.assists || 0}</td>
+            <td>${p.clean_sheets || 0}</td>
+            <td>${(p.form || 0).toFixed(1)}</td>
+            <td>${(p.selected_by_percent || 0).toFixed(1)}%</td>
+        </tr>
+    `).join('');
+}
+
+function sortPlayersTable(sortBy) {
+    if (!playersData.length) return;
+
+    playersSortAsc[sortBy] = !playersSortAsc[sortBy];
+    const ascending = playersSortAsc[sortBy] || false;
+
+    const sorted = [...playersData].sort((a, b) => {
+        const aVal = a[sortBy] || 0;
+        const bVal = b[sortBy] || 0;
+        if (sortBy === 'name') {
+            return ascending ? (aVal || '').localeCompare(bVal || '') : (bVal || '').localeCompare(aVal || '');
+        }
+        return ascending ? aVal - bVal : bVal - aVal;
+    });
+
+    const tbody = document.getElementById('players-tbody');
+    if (tbody) tbody.innerHTML = renderPlayerRows(sorted);
+
+    // Update header indicators
+    document.querySelectorAll('.players-table th.sortable').forEach(th => {
+        th.classList.remove('sort-active');
+        th.textContent = th.textContent.replace(' ▲', '').replace(' ▼', '');
+    });
+    const activeTh = document.querySelector(`.players-table th[data-sort="${sortBy}"]`);
+    if (activeTh) {
+        activeTh.classList.add('sort-active');
+        activeTh.textContent = activeTh.textContent.trim() + (ascending ? ' ▲' : ' ▼');
+    }
 }
 
 // ===== FIXTURES =====
@@ -1189,20 +1264,20 @@ function renderFixtures(fixtures) {
         const list = byGW[gwId];
         html += `<div class="fixture-gw"><h3>Gameweek ${gwId}</h3><div class="fixture-list">`;
         list.forEach(f => {
-            const homeDiff = getDifficultyClass(f.home_difficulty);
-            const awayDiff = getDifficultyClass(f.away_difficulty);
+            const homeDiff = f.home_difficulty ? getDifficultyClass(f.home_difficulty) : '';
+            const awayDiff = f.away_difficulty ? getDifficultyClass(f.away_difficulty) : '';
             html += `
                 <div class="fixture-row">
                     <div class="fixture-team home">
                         <span class="team-name">${escapeHtml(f.home_team)}</span>
-                        <span class="difficulty-badge ${homeDiff}">${f.home_difficulty}</span>
+                        ${f.home_difficulty ? `<span class="difficulty-badge ${homeDiff}">${f.home_difficulty}</span>` : ''}
                     </div>
                     <div class="fixture-result">
                         ${f.played ? `<span class="score">${f.home_score}-${f.away_score}</span>` : `<span class="vs">vs</span>`}
                         ${f.date ? `<span class="fixture-date">${formatDate(f.date)} ${formatTime(f.date)}</span>` : ''}
                     </div>
                     <div class="fixture-team away">
-                        <span class="difficulty-badge ${awayDiff}">${f.away_difficulty}</span>
+                        ${f.away_difficulty ? `<span class="difficulty-badge ${awayDiff}">${f.away_difficulty}</span>` : ''}
                         <span class="team-name">${escapeHtml(f.away_team)}</span>
                     </div>
                 </div>`;
@@ -1394,12 +1469,12 @@ async function loadGameweekDetails(gwId) {
 async function syncGameweeks() {
     try {
         const r = await apiFetch('/gameweeks/sync', { method: 'POST' });
-        if (r.ok) {
-            showToast('Fixtures synced', 'success');
+        const data = await r.json();
+        if (data.status === 'completed') {
+            showToast(data.message || 'Fixtures synced', 'success');
             await loadGameweeks();
         } else {
-            const err = await r.json();
-            showToast(err.detail || 'Failed', 'error');
+            showToast(data.message || 'Sync failed', 'error');
         }
     } catch (err) {
         showToast('Sync failed: ' + err.message, 'error');
@@ -1590,31 +1665,86 @@ async function loadLeaderboard() {
     } catch (err) { console.error('leaderboard', err); }
 }
 
+// ===== RANKINGS =====
+let rankingsSortAsc = {}; // Track sort direction per column
+
 function loadRankings() {
     const sortBy = document.getElementById('rankings-sort')?.value || 'points';
     const position = document.getElementById('rankings-position')?.value || '';
-    const params = new URLSearchParams({ sort_by: sortBy });
+    const params = new URLSearchParams({ sort_by: sortBy, limit: 100 });
     if (position) params.set('position', position);
-    
-    apiFetch('/players/rankings?' + params.toString()).then(response => response.json()).then(data => {
-        const tbody = document.getElementById('rankings-body');
-        if (tbody) {
-            const rankings = data.rankings || [];
-            const rows = rankings.map(p => {
-                return '<tr onclick="showPlayerDetail(' + p.id + ')" style="cursor:pointer">' +
-                    '<td>' + p.rank + '</td>' +
-                    '<td><strong>' + p.name + '</strong></td>' +
-                    '<td>' + p.team + '</td>' +
-                    '<td><span class="pos-badge pos-' + p.position.toLowerCase() + '">' + p.position + '</span></td>' +
-                    '<td><strong>' + p.points + '</strong></td>' +
-                    '<td>' + p.goals + '</td>' +
-                    '<td>' + p.assists + '</td>' +
-                    '<td>' + (p.form || '-') + '</td>' +
-                    '<td>' + p.price + 'm</td></tr>';
-            }).join('');
-            tbody.innerHTML = rows;
-        }
-    }).catch(err => console.error('Rankings load error:', err));
+
+    apiFetch('/players/rankings?' + params.toString())
+        .then(response => response.json())
+        .then(data => {
+            const tbody = document.getElementById('rankings-body');
+            if (tbody) {
+                const rankings = data.rankings || [];
+                const rows = rankings.map(p => {
+                    return '<tr onclick="showPlayerDetail(' + p.id + ')" style="cursor:pointer">' +
+                        '<td><strong>' + p.points + '</strong></td>' +
+                        '<td><strong>' + escapeHtml(p.name) + '</strong></td>' +
+                        '<td>' + escapeHtml(p.team) + '</td>' +
+                        '<td>' + (p.goals || 0) + '</td>' +
+                        '<td>' + (p.assists || 0) + '</td>' +
+                        '<td>' + (p.form ? parseFloat(p.form).toFixed(1) : '-') + '</td>' +
+                        '<td>' + p.price.toFixed(1) + 'm</td></tr>';
+                }).join('');
+                tbody.innerHTML = rows;
+            }
+        })
+        .catch(err => console.error('Rankings load error:', err));
+}
+
+function handleRankingsSort(sortBy) {
+    // Toggle ascending/descending
+    rankingsSortAsc[sortBy] = !rankingsSortAsc[sortBy];
+    const ascending = rankingsSortAsc[sortBy] || false;
+
+    const position = document.getElementById('rankings-position')?.value || '';
+    const params = new URLSearchParams({ sort_by: sortBy, limit: 100 });
+    if (position) params.set('position', position);
+    apiFetch('/players/rankings?' + params.toString())
+        .then(response => response.json())
+        .then(data => {
+            const tbody = document.getElementById('rankings-body');
+            if (tbody) {
+                let rankings = (data.rankings || []).slice();
+
+                // Client-side sort for ascending toggle
+                const fieldMap = {
+                    points: 'points', goals: 'goals', assists: 'assists', form: 'form', price: 'price',
+                };
+                const field = fieldMap[sortBy];
+                if (ascending) {
+                    rankings.sort((a, b) => ((a[field] || 0) - (b[field] || 0)));
+                }
+
+                // Update sort indicator in headers
+                document.querySelectorAll('#rankings-table th.sortable').forEach(th => {
+                    th.classList.remove('sort-active');
+                    th.textContent = th.textContent.replace(' ▲', '').replace(' ▼', '');
+                });
+                const activeTh = document.querySelector(`#rankings-table th[data-sort="${sortBy}"]`);
+                if (activeTh) {
+                    activeTh.classList.add('sort-active');
+                    activeTh.textContent = activeTh.textContent.trim() + (ascending ? ' ▲' : ' ▼');
+                }
+
+                const rows = rankings.map(p => {
+                    return '<tr onclick="showPlayerDetail(' + p.id + ')" style="cursor:pointer">' +
+                        '<td><strong>' + (p.points || 0) + '</strong></td>' +
+                        '<td><strong>' + escapeHtml(p.name) + '</strong></td>' +
+                        '<td>' + escapeHtml(p.team) + '</td>' +
+                        '<td>' + (p.goals || 0) + '</td>' +
+                        '<td>' + (p.assists || 0) + '</td>' +
+                        '<td>' + (p.form ? parseFloat(p.form).toFixed(1) : '-') + '</td>' +
+                        '<td>' + p.price.toFixed(1) + 'm</td></tr>';
+                }).join('');
+                tbody.innerHTML = rows;
+            }
+        })
+        .catch(err => console.error('Rankings sort error:', err));
 }
 
 

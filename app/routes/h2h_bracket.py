@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional
 
-from app.database import get_db
+from app.database import get_db, get_bound_db
 from app.models import (
     H2hLeague, H2hParticipant, H2hMatch, FantasyTeam, User, Gameweek,
 )
@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api/h2h-bracket", tags=["h2h-bracket"])
 @router.get("/{league_id}")
 def get_h2h_bracket(
     league_id: int,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_bound_db),
 ):
     """Get H2H bracket data for visualization.
 
@@ -136,7 +136,7 @@ def _build_knockout_bracket(matches, standings):
 @router.get("/{league_id}/standings")
 def get_h2h_standings(
     league_id: int,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_bound_db),
 ):
     """Get detailed H2H standings table."""
     league = db.query(H2hLeague).filter(H2hLeague.id == league_id).first()

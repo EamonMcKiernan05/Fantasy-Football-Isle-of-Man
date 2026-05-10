@@ -40,7 +40,7 @@ os.environ["DATABASE_URL"] = "sqlite:///./data/fantasy_iom.db"
 import requests as req_lib
 from sqlalchemy.orm import Session
 from sqlalchemy import text as sql_text
-from app.database import SessionLocal
+from app.database import SessionLocal, BoundSessionLocal, init_binds
 from app.models import (
     Gameweek, Fixture, Player, PlayerGameweekPoints, GameweekStats,
     FantasyTeam, FantasyTeamHistory, SquadPlayer, Team, Season,
@@ -565,7 +565,9 @@ def main():
     parser.add_argument("--force", action="store_true", help="Force rescore even if already scored")
     args = parser.parse_args()
 
-    db = SessionLocal()
+    # Initialize FFIOM-DB binds (Player/Team/Gameweek/Fixture -> FFIOM-DB)
+    init_binds()
+    db = BoundSessionLocal()
 
     try:
         print("=" * 50)

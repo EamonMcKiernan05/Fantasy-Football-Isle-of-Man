@@ -315,15 +315,10 @@ def update_player_price(
 ) -> float:
     """Calculate player price change for a gameweek.
 
-    Performance-based pricing system inspired by FPL 2024/25 season:
-    - Gabriel (Arsenal DEF): 5.0m -> 6.0m over season (20 GWs)
-    - Watkins (AVL FWD): 7.5m -> 8.0m over season
-    - Palmer (Chelsea MID): 5.5m -> 10.0m over season (biggest riser)
-
-    Price changes are gradual (±0.1-0.2m per GW), based on:
-    1. Points scored this gameweek (primary driver)
-    2. Season form / PPG (secondary driver)
-    3. Position-based baselines
+    New pricing system (2025-26):
+    - Starting price: calculated from last season fantasy points (4.0m + 0.05m/pt, cap 12.0m)
+    - Per-GW increase: 0.1m for every 15 current season points (cumulative)
+    - Price changes tracked against price_start baseline
 
     Args:
         selected_by_change: Change in selection percentage (minor influence)
@@ -334,62 +329,51 @@ def update_player_price(
         apps: Total appearances
 
     Returns:
-        New price capped to [1.0, 15.0]
+        New price capped to [4.0, 12.0]
     """
-    change = 0.0
+    # Primary: price based on cumulative season points
+    # 0.1m increase for every 15 points
+    if total_points_season <= 0:
+        return current_price
 
-    # Primary: gameweek performance drives price
-    # Thresholds by position
-    if position == "GK":
-        if gw_points >= 10:
-            change += 0.2
-        elif gw_points >= 6:
-            change += 0.1
-        elif gw_points <= 0:
-            change -= 0.1
-    elif position == "DEF":
-        if gw_points >= 12:
-            change += 0.2
-        elif gw_points >= 7:
-            change += 0.1
-        elif gw_points <= 0:
-            change -= 0.1
-    elif position == "MID":
-        if gw_points >= 12:
-            change += 0.2
-        elif gw_points >= 8:
-            change += 0.1
-        elif gw_points <= 0:
-            change -= 0.1
-    else:  # FWD
-        if gw_points >= 10:
-            change += 0.2
-        elif gw_points >= 6:
-            change += 0.1
-        elif gw_points <= 0:
-            change -= 0.1
+    points_threshold = 15
+    increase_per_threshold = 0.1
 
-    # Secondary: season form / PPG bonus for consistent performers
-    if apps > 0:
-        ppg = total_points_season / apps
-        if ppg >= 10:  # Elite performer
-            change += 0.05
-        elif ppg >= 7:  # Good performer
-            change += 0.03
-        elif ppg < 2:  # Underperforming
-            change -= 0.05
+    increase = (total_points_season // points_threshold) * increase_per_threshold
+    new_price = 5.0 + increase  # Base 5.0m + increases
 
-    # Minor: ownership change still has some effect (FPL-style)
+    # Minor: ownership change still has some effect
     if selected_by_change >= 30:
-        change += 0.05
+        new_price += 0.05
     elif selected_by_change <= -30:
-        change -= 0.05
+        new_price -= 0.05
 
-    # Clamp to reasonable per-GW change range (±0.3m max)
-    change = max(-0.3, min(0.3, change))
+    return round(max(5.0, min(17.0, new_price)), 1)
 
-    new_price = current_price + change
-    return round(max(1.0, min(15.0, new_price)), 1)
+
+def calculate_price_increase_budget(fantasy_team, players_in_squad: list, old_prices: dict) -> float:
+    """Calculate budget adjustment from owned player price increases.
+
+    When a player in your team increases in price, you get half the increase
+    added to your budget (like real FPL).
+
+    Args:
+        fantasy_team: FantasyTeam model instance
+        players_in_squad: List of dicts with 'player_id' and 'new_price'
+        old_prices: Dict mapping player_id -> old price
+
+    Returns:
+        Total budget addition (half of total owned price increases)
+    """
+    total_increase = 0.0
+    for player in players_in_squad:
+        pid = player["player_id"]
+        new_price = player.get("new_price", 0)
+        old_price = old_prices.get(pid, 0)
+        if new_price and old_price and new_price > old_price:
+            total_increase += (new_price - old_price)
+
+    return round(total_increase / 2, 1)
 
 
 def calculate_form(points_history: list, weeks: int = 5) -> float:

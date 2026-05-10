@@ -5,7 +5,7 @@ from sqlalchemy import func
 from typing import Optional, List
 from datetime import datetime, timedelta
 
-from app.database import get_db
+from app.database import get_db, get_bound_db
 from app.models import Player, FantasyTeam, SquadPlayer, Gameweek, Chip, PlayerPriceHistory
 from app.schemas import PlayerPriceResponse, PriceChangeSummary
 
@@ -17,7 +17,7 @@ def get_price_changes(
     gameweek: int = Query(None, description="Gameweek to filter by"),
     direction: str = Query(None, description="Filter by 'rise', 'fall', or 'all'"),
     min_change: float = Query(0.1, description="Minimum price change (in £m)"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_bound_db)
 ):
     """Get players with price changes.
 
@@ -60,7 +60,7 @@ def get_price_changes(
 def get_price_leaders(
     direction: str = Query("rise", description="'rise' or 'fall'"),
     limit: int = Query(10, description="Number of players to return"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_bound_db)
 ):
     """Get top price risers or fallers this season."""
     history_entries = db.query(PlayerPriceHistory).join(Player)\
@@ -91,7 +91,7 @@ def get_price_leaders(
 @router.post("/process-price-changes", response_model=PriceChangeSummary)
 def process_price_changes(
     gameweek_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_bound_db)
 ):
     """Process price changes based on transfer activity for a gameweek.
 
@@ -175,7 +175,7 @@ def process_price_changes(
 @router.get("/player/{player_id}/price-history")
 def get_player_price_history(
     player_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_bound_db)
 ):
     """Get the price change history for a specific player."""
     player = db.query(Player).filter(Player.player_id == player_id).first()

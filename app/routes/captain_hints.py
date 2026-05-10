@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import Optional, List
 
-from app.database import get_db
+from app.database import get_db, get_bound_db
 from app.models import (
     User, FantasyTeam, SquadPlayer, Player, Gameweek, Fixture,
     PlayerGameweekPoints, Team,
@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api/captain", tags=["captain"])
 def get_captain_hints(
     user_id: int,
     gw_id: Optional[int] = Query(None, description="Gameweek ID to get hints for"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_bound_db),
 ):
     """Get captain hints based on form, fixtures, and player stats.
     
@@ -142,7 +142,7 @@ def get_captain_hints(
 def compare_captain_options(
     user_id: int,
     player_ids: str = Query(..., description="Comma-separated player IDs to compare"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_bound_db),
 ):
     """Compare multiple players as captain options side by side.
     

@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import Optional
 
-from app.database import get_db
+from app.database import get_db, get_bound_db
 from app.models import (
     FantasyTeam, User, FantasyTeamHistory, Gameweek, SquadPlayer, Player,
 )
@@ -17,7 +17,7 @@ def get_leaderboard(
     season: str = Query("2025-26", description="Season to filter by"),
     limit: int = Query(100, description="Number of entries to return"),
     offset: int = Query(0, description="Pagination offset"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_bound_db),
 ):
     """Get the overall leaderboard for all fantasy teams.
 
@@ -74,7 +74,7 @@ def get_leaderboard(
 
 
 @router.get("/top-5")
-def get_top_5(db: Session = Depends(get_db)):
+def get_top_5(db: Session = Depends(get_bound_db)):
     """Get the top 5 fantasy teams globally."""
     teams = (
         db.query(FantasyTeam)
@@ -101,7 +101,7 @@ def get_top_5(db: Session = Depends(get_db)):
 def get_gameweek_leaderboard(
     gw_id: int,
     limit: int = Query(50, description="Number of entries to return"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_bound_db),
 ):
     """Get the leaderboard for a specific gameweek (top scorers)."""
     gw = db.query(Gameweek).filter(Gameweek.id == gw_id).first()
@@ -138,7 +138,7 @@ def get_gameweek_leaderboard(
 
 
 @router.get("/{user_id}/rank")
-def get_user_rank(user_id: int, db: Session = Depends(get_db)):
+def get_user_rank(user_id: int, db: Session = Depends(get_bound_db)):
     """Get a user's current rank in the overall leaderboard.
 
     Returns detailed ranking info including percentile.
@@ -194,7 +194,7 @@ def get_user_rank(user_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{user_id}/history")
-def get_user_history(user_id: int, db: Session = Depends(get_db)):
+def get_user_history(user_id: int, db: Session = Depends(get_bound_db)):
     """Get a user's gameweek-by-gameweek history."""
     ft = db.query(FantasyTeam).filter(FantasyTeam.user_id == user_id).first()
     if not ft:
@@ -228,7 +228,7 @@ def get_user_history(user_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/calculate-ranks")
-def calculate_all_ranks(db: Session = Depends(get_db)):
+def calculate_all_ranks(db: Session = Depends(get_bound_db)):
     """Recalculate overall ranks for all teams.
 
     Called after scoring to update ranks.

@@ -249,11 +249,11 @@
                 <div class="filter-group">
                     <label>Position:</label>
                     <select id="rankings-position" onchange="loadRankings()">
-                        <option value="">All</option>
-                        <option value="GK">GK</option>
-                        <option value="DEF">DEF</option>
-                        <option value="MID">MID</option>
-                        <option value="FWD">FWD</option>
+                        <option value="">All Positions</option>
+                        <option value="GK">Goalkeeper</option>
+                        <option value="DEF">Defender</option>
+                        <option value="MID">Midfielder</option>
+                        <option value="FWD">Forward</option>
                     </select>
                 </div>
             </div>
@@ -261,15 +261,13 @@
                 <table>
                     <thead>
                         <tr>
-                            <th>#</th>
+                            <th class="sortable" data-sort="points" onclick="handleRankingsSort('points')">Pts ⇅</th>
                             <th>Player</th>
                             <th>Team</th>
-                            <th>Pos</th>
-                            <th>Pts</th>
-                            <th>Goals</th>
-                            <th>Assists</th>
-                            <th>Form</th>
-                            <th>Price</th>
+                            <th class="sortable" data-sort="goals" onclick="handleRankingsSort('goals')">Goals ⇅</th>
+                            <th class="sortable" data-sort="assists" onclick="handleRankingsSort('assists')">Assists ⇅</th>
+                            <th class="sortable" data-sort="form" onclick="handleRankingsSort('form')">Form ⇅</th>
+                            <th class="sortable" data-sort="price" onclick="handleRankingsSort('price')">Price ⇅</th>
                         </tr>
                     </thead>
                     <tbody id="rankings-body"></tbody>
@@ -391,6 +389,6 @@
     <div id="modal-overlay" class="modal-overlay"></div>
     <div id="modal-content" class="modal-content" onclick="event.stopPropagation()"></div>
 
-    <script src="/static/js/app.js?v=11"></script>
+    <script src="/static/js/app.js?v=12"></script>
 </body>
 </html>

@@ -9,7 +9,7 @@ from sqlalchemy import func
 from typing import Optional
 from datetime import datetime
 
-from app.database import get_db
+from app.database import get_db, get_bound_db
 from app.models import (
     FantasyTeam, SquadPlayer, Player, Gameweek, FantasyTeamHistory,
 )
@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api/team-value", tags=["team-value"])
 
 
 @router.get("/{team_id}")
-def get_team_value(team_id: int, db: Session = Depends(get_db)):
+def get_team_value(team_id: int, db: Session = Depends(get_bound_db)):
     """Get current and historical team value for a fantasy team.
 
     FPL-style team value tracking showing total squad value
@@ -68,7 +68,7 @@ def get_team_value(team_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{team_id}/squad-values")
-def get_squad_values(team_id: int, db: Session = Depends(get_db)):
+def get_squad_values(team_id: int, db: Session = Depends(get_bound_db)):
     """Get individual player values in a fantasy team.
 
     Shows purchase price, current price, and profit/loss per player.

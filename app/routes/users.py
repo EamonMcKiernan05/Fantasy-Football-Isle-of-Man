@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from typing import Optional, Annotated
 
-from app.database import get_db
+from app.database import get_db, get_bound_db
 from app.models import (
     User, FantasyTeam, SquadPlayer, Player, Gameweek,
     FantasyTeamHistory, Team,
@@ -27,7 +27,7 @@ router = APIRouter(prefix="/api/users", tags=["users"])
 @router.get("/me")
 def get_current_user(
     authorization: Optional[str] = Header(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_bound_db)
 ):
     """Get current user and their fantasy team (used by frontend).
 
@@ -116,7 +116,7 @@ def _resolve_team(db: Session, team_or_user_id: int) -> FantasyTeam:
 
 
 @router.get("/{user_id}/squad")
-def get_squad(user_id: int, db: Session = Depends(get_db)):
+def get_squad(user_id: int, db: Session = Depends(get_bound_db)):
     """Get squad players for a user's fantasy team.
 
     Accepts either user_id or fantasy_team_id (frontend mixes these).
@@ -130,7 +130,7 @@ def get_squad(user_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{team_id}/chips")
-def get_team_chips(team_id: int, db: Session = Depends(get_db)):
+def get_team_chips(team_id: int, db: Session = Depends(get_bound_db)):
     """Return chip status as a list (frontend renders chip cards)."""
     ft = _resolve_team(db, team_id)
     if not ft:
@@ -150,7 +150,7 @@ def get_team_chips(team_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{team_id}/chips/activate/{chip_type}")
-def activate_chip_route(team_id: int, chip_type: str, db: Session = Depends(get_db)):
+def activate_chip_route(team_id: int, chip_type: str, db: Session = Depends(get_bound_db)):
     ft = _resolve_team(db, team_id)
     if not ft:
         raise HTTPException(status_code=404, detail="Fantasy team not found")
@@ -172,7 +172,7 @@ def activate_chip_route(team_id: int, chip_type: str, db: Session = Depends(get_
 
 
 @router.post("/{team_id}/chips/cancel/{chip_type}")
-def cancel_chip_route(team_id: int, chip_type: str, db: Session = Depends(get_db)):
+def cancel_chip_route(team_id: int, chip_type: str, db: Session = Depends(get_bound_db)):
     ft = _resolve_team(db, team_id)
     if not ft:
         raise HTTPException(status_code=404, detail="Fantasy team not found")
@@ -193,7 +193,7 @@ def cancel_chip_route(team_id: int, chip_type: str, db: Session = Depends(get_db
 
 
 @router.post("/{team_id}/captain/{squad_id}")
-def set_captain_by_squad(team_id: int, squad_id: int, db: Session = Depends(get_db)):
+def set_captain_by_squad(team_id: int, squad_id: int, db: Session = Depends(get_bound_db)):
     ft = _resolve_team(db, team_id)
     if not ft:
         raise HTTPException(status_code=404, detail="Fantasy team not found")
@@ -219,7 +219,7 @@ def set_captain_by_squad(team_id: int, squad_id: int, db: Session = Depends(get_
 
 
 @router.post("/{team_id}/vice-captain/{squad_id}")
-def set_vice_captain_by_squad(team_id: int, squad_id: int, db: Session = Depends(get_db)):
+def set_vice_captain_by_squad(team_id: int, squad_id: int, db: Session = Depends(get_bound_db)):
     ft = _resolve_team(db, team_id)
     if not ft:
         raise HTTPException(status_code=404, detail="Fantasy team not found")
@@ -245,7 +245,7 @@ def set_vice_captain_by_squad(team_id: int, squad_id: int, db: Session = Depends
 
 
 @router.post("/{team_id}/squad/{squad_id}/bench")
-def bench_squad_player(team_id: int, squad_id: int, db: Session = Depends(get_db)):
+def bench_squad_player(team_id: int, squad_id: int, db: Session = Depends(get_bound_db)):
     """Move a player to the bench, swapping with the highest-priority bench player."""
     ft = _resolve_team(db, team_id)
     if not ft:
@@ -286,7 +286,7 @@ def bench_squad_player(team_id: int, squad_id: int, db: Session = Depends(get_db
 
 
 @router.post("/{team_id}/squad/{squad_id}/start")
-def start_squad_player(team_id: int, squad_id: int, db: Session = Depends(get_db)):
+def start_squad_player(team_id: int, squad_id: int, db: Session = Depends(get_bound_db)):
     """Promote a benched player to start, swapping with the lowest-scoring starter."""
     ft = _resolve_team(db, team_id)
     if not ft:
@@ -323,7 +323,7 @@ def start_squad_player(team_id: int, squad_id: int, db: Session = Depends(get_db
 
 
 @router.post("/register")
-def register(user: UserCreate, db: Session = Depends(get_db)):
+def register(user: UserCreate, db: Session = Depends(get_bound_db)):
     """Register a new user, create their fantasy team, and return an auth token.
 
     Creates an empty fantasy team (no squad players) which the user populates
@@ -378,7 +378,7 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
 
 
 @router.post("/login")
-def login(username: Annotated[str, Form()], password: Annotated[str, Form()], db: Session = Depends(get_db)):
+def login(username: Annotated[str, Form()], password: Annotated[str, Form()], db: Session = Depends(get_bound_db)):
     """Login a user and return a JWT access token."""
     user = db.query(User).filter(User.username == username).first()
     if not user or not verify_password(password, user.password_hash):
@@ -397,7 +397,7 @@ def login(username: Annotated[str, Form()], password: Annotated[str, Form()], db
 
 
 @router.get("/{user_id}", response_model=UserResponse)
-def get_user(user_id: int, db: Session = Depends(get_db)):
+def get_user(user_id: int, db: Session = Depends(get_bound_db)):
     """Get user details."""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
@@ -408,7 +408,7 @@ def get_user(user_id: int, db: Session = Depends(get_db)):
 # --- Fantasy Team routes ---
 
 @router.get("/{user_id}/team", response_model=dict)
-def get_fantasy_team(user_id: int, db: Session = Depends(get_db)):
+def get_fantasy_team(user_id: int, db: Session = Depends(get_bound_db)):
     """Get the user's fantasy team with full squad."""
     ft = db.query(FantasyTeam).filter(FantasyTeam.user_id == user_id).first()
     if not ft:
@@ -468,7 +468,7 @@ def get_fantasy_team(user_id: int, db: Session = Depends(get_db)):
 def create_fantasy_team(
     user_id: int,
     team_name: str = "My Team",
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_bound_db),
 ):
     """Create a new fantasy team for a user.
 
@@ -507,7 +507,7 @@ def create_fantasy_team(
 
 
 @router.get("/{user_id}/team/chip")
-def get_chip_status_route(user_id: int, db: Session = Depends(get_db)):
+def get_chip_status_route(user_id: int, db: Session = Depends(get_bound_db)):
     """Get detailed chip status for a user."""
     ft = db.query(FantasyTeam).filter(FantasyTeam.user_id == user_id).first()
     if not ft:
@@ -521,7 +521,7 @@ def get_chip_status_route(user_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{user_id}/team/chip")
-def set_chip(user_id: int, request: ChipRequest, db: Session = Depends(get_db)):
+def set_chip(user_id: int, request: ChipRequest, db: Session = Depends(get_bound_db)):
     """Activate or cancel a chip for the current gameweek.
 
     FPL 2025/26 rules:
@@ -576,7 +576,7 @@ def set_chip(user_id: int, request: ChipRequest, db: Session = Depends(get_db)):
 
 
 @router.put("/{user_id}/team/captain")
-def set_captain(user_id: int, request: CaptainRequest, db: Session = Depends(get_db)):
+def set_captain(user_id: int, request: CaptainRequest, db: Session = Depends(get_bound_db)):
     """Set captain and vice-captain.
 
     FPL rules:
@@ -644,7 +644,7 @@ def set_captain(user_id: int, request: CaptainRequest, db: Session = Depends(get
 
 
 @router.put("/{user_id}/team/formation")
-def set_formation(user_id: int, formation: str, db: Session = Depends(get_db)):
+def set_formation(user_id: int, formation: str, db: Session = Depends(get_bound_db)):
     """Set starting 10 (no formation validation - any player in any position).
 
     Accepts any formation string but just sets first 10 squad players as starters.
@@ -674,7 +674,7 @@ def set_formation(user_id: int, formation: str, db: Session = Depends(get_db)):
 
 
 @router.put("/{user_id}/team/bench-priority")
-def set_bench_priority(user_id: int, bench_order: list, db: Session = Depends(get_db)):
+def set_bench_priority(user_id: int, bench_order: list, db: Session = Depends(get_bound_db)):
     """Set bench priority order for auto-substitutions.
 
     FPL rules:
@@ -699,7 +699,7 @@ def set_bench_priority(user_id: int, bench_order: list, db: Session = Depends(ge
 
 
 @router.get("/{user_id}/team/history")
-def get_team_history(user_id: int, db: Session = Depends(get_db)):
+def get_team_history(user_id: int, db: Session = Depends(get_bound_db)):
     """Get gameweek-by-gameweek history for a user's team."""
     ft = db.query(FantasyTeam).filter(FantasyTeam.user_id == user_id).first()
     if not ft:
@@ -733,7 +733,7 @@ def update_team_details(
     user_id: int,
     team_name: str = None,
     supported_club_id: int = None,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_bound_db),
 ):
     """Update fantasy team details.
 
@@ -765,7 +765,7 @@ def update_team_details(
 
 
 @router.get("/{user_id}/team/supported-club-leaderboard")
-def get_club_leaderboard(user_id: int, db: Session = Depends(get_db)):
+def get_club_leaderboard(user_id: int, db: Session = Depends(get_bound_db)):
     """Get leaderboard for managers who support the same club."""
     ft = db.query(FantasyTeam).filter(FantasyTeam.user_id == user_id).first()
     if not ft or not ft.supported_club_id:

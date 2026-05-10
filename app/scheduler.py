@@ -13,7 +13,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from datetime import datetime
 
-from app.database import SessionLocal, Base, engine
+from app.database import SessionLocal, Base, engine, init_binds, get_bound_db
 from app.models import (
     Gameweek, Season, Player, PlayerGameweekPoints,
     FantasyTeam, SquadPlayer, FantasyTeamHistory, Team, Fixture,
@@ -79,7 +79,8 @@ def shutdown_scheduler():
 def apply_deadline():
     """Apply transfer deadline for current gameweek."""
     logger.info("Applying transfer deadline...")
-    db = SessionLocal()
+    init_binds()
+    db = BoundSessionLocal()
     try:
         current_gw = db.query(Gameweek).filter(
             Gameweek.closed == False
@@ -99,7 +100,8 @@ def apply_deadline():
 def process_gameweek_end():
     """Process end of gameweek: score, transfer rollover, price updates."""
     logger.info("Processing gameweek end...")
-    db = SessionLocal()
+    init_binds()
+    db = BoundSessionLocal()
     try:
         current_gw = db.query(Gameweek).filter(
             Gameweek.closed == False
@@ -374,7 +376,11 @@ def sync_fixtures():
     any new results. Handles walkovers by awarding 2 points to players.
     """
     logger.info("Syncing fixtures...")
-    db = SessionLocal()
+    from app.database import BoundSessionLocal
+    init_binds()
+    if BoundSessionLocal is None:
+        raise RuntimeError("Database not initialized - check app startup logs")
+    db = BoundSessionLocal()
     try:
         from app.api_client import FullTimeAPIClient
 

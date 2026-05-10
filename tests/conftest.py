@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from app.database import Base, get_db
+from app.database import Base, get_db, get_bound_db, init_binds
 
 
 @pytest.fixture(scope="function")
@@ -28,7 +28,10 @@ def test_db():
 
 @pytest.fixture(scope="function")
 def client(test_db):
-    """Create a test client for API testing."""
+    """Create a test client for API testing.
+
+    Overrides both get_db and get_bound_db to use the test database.
+    """
     from app.main import app
     from starlette.testclient import TestClient
 
@@ -40,9 +43,25 @@ def client(test_db):
         finally:
             pass
 
+    def override_get_bound_db():
+        try:
+            yield session
+        finally:
+            pass
+
+    # Override both database dependencies to use test session
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_bound_db] = override_get_bound_db
 
     with TestClient(app, raise_server_exceptions=False) as test_client:
         yield test_client
 
     app.dependency_overrides.clear()
+
+
+@pytest.fixture(scope="function")
+def db_session(test_db):
+    """Direct database session for tests that need to manipulate data."""
+    _, session = test_db
+    yield session
+    session.close()

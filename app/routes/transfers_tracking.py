@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import Optional
 
-from app.database import get_db
+from app.database import get_db, get_bound_db
 from app.models import Player, Gameweek, SquadPlayer
 
 router = APIRouter(prefix="/api/transfers", tags=["transfers-tracking"])
@@ -22,7 +22,7 @@ def _calculate_ownership(db, player):
 def get_most_transferred(
     gw_id: Optional[int] = None,
     limit: int = 10,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_bound_db),
 ):
     """Get the most transferred players (in/out) for a gameweek or overall.
 
@@ -51,7 +51,7 @@ def get_most_transferred(
 def get_most_owned(
     position: Optional[str] = None,
     limit: int = 10,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_bound_db),
 ):
     """Get the most owned players, optionally filtered by position."""
     query = db.query(Player).filter(Player.is_active == True)
@@ -79,7 +79,7 @@ def get_most_owned(
 def get_transfers_in(
     gw_id: Optional[int] = None,
     limit: int = 10,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_bound_db),
 ):
     """Get players most transferred in this gameweek."""
     players = db.query(Player).filter(
@@ -104,7 +104,7 @@ def get_transfers_in(
 def get_transfers_out(
     gw_id: Optional[int] = None,
     limit: int = 10,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_bound_db),
 ):
     """Get players most transferred out this gameweek."""
     players = db.query(Player).filter(

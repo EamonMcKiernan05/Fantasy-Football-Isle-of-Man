@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from typing import Optional
 
-from app.database import get_db
+from app.database import get_db, get_bound_db
 from app.models import (
     User, FantasyTeam, SquadPlayer, Player, Gameweek, Transfer,
     MiniLeague, MiniLeagueMember,
@@ -41,7 +41,7 @@ def _resolve_team(db: Session, fantasy_team_id=None, user_id=None):
 
 
 @router.post("/player")
-def transfer_player(payload: dict, db: Session = Depends(get_db)):
+def transfer_player(payload: dict, db: Session = Depends(get_bound_db)):
     """Add a player, drop a player, or swap a player.
 
     Body fields (all optional except one of in/out):
@@ -242,7 +242,7 @@ def transfer_player(payload: dict, db: Session = Depends(get_db)):
 
 
 @router.post("/confirm", response_model=dict)
-def confirm_transfers(payload: dict, db: Session = Depends(get_db)):
+def confirm_transfers(payload: dict, db: Session = Depends(get_bound_db)):
     """Confirm and apply pending transfers.
 
     Accepts an array of pending transfers: [{player_out_id, player_in_id}, ...]
@@ -414,7 +414,7 @@ def confirm_transfers(payload: dict, db: Session = Depends(get_db)):
 
 
 @router.post("/", response_model=dict)
-def make_transfer(request: TransferRequest, db: Session = Depends(get_db)):
+def make_transfer(request: TransferRequest, db: Session = Depends(get_bound_db)):
     """Make a transfer (player in + player out).
 
     FPL 2025/26 Rules:
@@ -592,7 +592,7 @@ def make_transfer(request: TransferRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/wildcard", response_model=dict)
-def play_wildcard(user_id: int, db: Session = Depends(get_db)):
+def play_wildcard(user_id: int, db: Session = Depends(get_bound_db)):
     """Play wildcard chip - unlimited free transfers this gameweek.
 
     Rules:
@@ -632,7 +632,7 @@ def play_wildcard(user_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/free-hit", response_model=dict)
-def play_free_hit(user_id: int, db: Session = Depends(get_db)):
+def play_free_hit(user_id: int, db: Session = Depends(get_bound_db)):
     """Play Free Hit chip - temporary squad for 1 gameweek.
 
     Rules:
@@ -687,7 +687,7 @@ def play_free_hit(user_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/cancel-chip", response_model=dict)
-def cancel_chip_route(user_id: int, chip: str, db: Session = Depends(get_db)):
+def cancel_chip_route(user_id: int, chip: str, db: Session = Depends(get_bound_db)):
     """Cancel a chip before the deadline.
 
     Note: Free Hit cannot be cancelled once confirmed.
@@ -716,7 +716,7 @@ def cancel_chip_route(user_id: int, chip: str, db: Session = Depends(get_db)):
 
 
 @router.get("/status/{user_id}")
-def get_transfer_status(user_id: int, db: Session = Depends(get_db)):
+def get_transfer_status(user_id: int, db: Session = Depends(get_bound_db)):
     """Get transfer status including free transfers, budget, and chip availability."""
     ft = db.query(FantasyTeam).filter(FantasyTeam.user_id == user_id).first()
     if not ft:
@@ -759,7 +759,7 @@ def get_transfer_status(user_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/history/{user_id}")
-def get_transfer_history(user_id: int, db: Session = Depends(get_db)):
+def get_transfer_history(user_id: int, db: Session = Depends(get_bound_db)):
     """Get transfer history for a user."""
     transfers = db.query(Transfer).filter(
         Transfer.user_id == user_id

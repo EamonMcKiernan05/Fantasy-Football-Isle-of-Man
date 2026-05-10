@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List
 
-from app.database import get_db
+from app.database import get_db, get_bound_db
 from app.models import Team, Division, League
 from app.schemas import TeamResponse, DivisionResponse
 from app import api_client
@@ -12,7 +12,7 @@ router = APIRouter(prefix="/api/teams", tags=["teams"])
 
 
 @router.get("/refresh")
-def refresh_teams(db: Session = Depends(get_db)):
+def refresh_teams(db: Session = Depends(get_bound_db)):
     """Refresh team data from FullTime API for all divisions."""
     client = api_client.FullTimeAPIClient()
     divisions = client.get_league_divisions()
@@ -85,7 +85,7 @@ def refresh_teams(db: Session = Depends(get_db)):
 
 
 @router.get("/divisions")
-def list_divisions(db: Session = Depends(get_db)):
+def list_divisions(db: Session = Depends(get_bound_db)):
     """List all divisions with their teams."""
     divisions = db.query(Division).order_by(Division.name).all()
     result = []
@@ -114,7 +114,7 @@ def list_divisions(db: Session = Depends(get_db)):
 @router.get("/")
 def list_teams(
     division_id: int = Query(None, description="Filter by division ID"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_bound_db),
 ):
     """List all IOM league teams."""
     query = db.query(Team)
@@ -142,7 +142,7 @@ def list_teams(
 
 
 @router.get("/{team_id}", response_model=TeamResponse)
-def get_team(team_id: int, db: Session = Depends(get_db)):
+def get_team(team_id: int, db: Session = Depends(get_bound_db)):
     """Get a specific team."""
     team = db.query(Team).filter(Team.id == team_id).first()
     if not team:

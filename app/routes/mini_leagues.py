@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List
 
-from app.database import get_db
+from app.database import get_db, get_bound_db
 from app.models import (
     MiniLeague, MiniLeagueMember, FantasyTeam, User, Gameweek,
     FantasyTeamHistory,
@@ -26,7 +26,7 @@ def generate_league_code(length: int = 8) -> str:
 def create_mini_league(
     league: MiniLeagueCreate,
     user_id: int = Query(..., description="Admin user ID"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_bound_db),
 ):
     """Create a new mini-league.
 
@@ -70,7 +70,7 @@ def create_mini_league(
 def join_mini_league(
     code: str,
     user_id: int = Query(..., description="User joining the league"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_bound_db),
 ):
     """Join a mini-league using an invite code."""
     ml = db.query(MiniLeague).filter(MiniLeague.code == code.upper()).first()
@@ -103,7 +103,7 @@ def join_mini_league(
 
 
 @router.get("/{ml_id}", response_model=MiniLeagueResponse)
-def get_mini_league(ml_id: int, db: Session = Depends(get_db)):
+def get_mini_league(ml_id: int, db: Session = Depends(get_bound_db)):
     """Get mini-league details with leaderboard."""
     ml = db.query(MiniLeague).filter(MiniLeague.id == ml_id).first()
     if not ml:
@@ -113,7 +113,7 @@ def get_mini_league(ml_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/by-code/{code}")
-def get_mini_league_by_code(code: str, db: Session = Depends(get_db)):
+def get_mini_league_by_code(code: str, db: Session = Depends(get_bound_db)):
     """Get mini-league by invite code."""
     ml = db.query(MiniLeague).filter(MiniLeague.code == code.upper()).first()
     if not ml:
@@ -123,7 +123,7 @@ def get_mini_league_by_code(code: str, db: Session = Depends(get_db)):
 
 
 @router.get("/my-leagues/{user_id}")
-def get_user_leagues(user_id: int, db: Session = Depends(get_db)):
+def get_user_leagues(user_id: int, db: Session = Depends(get_bound_db)):
     """Get all mini-leagues a user is part of."""
     ft = db.query(FantasyTeam).filter(FantasyTeam.user_id == user_id).first()
     if not ft:
@@ -150,7 +150,7 @@ def get_user_leagues(user_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{ml_id}/calculate-ranks")
-def calculate_league_ranks(ml_id: int, db: Session = Depends(get_db)):
+def calculate_league_ranks(ml_id: int, db: Session = Depends(get_bound_db)):
     """Calculate and update ranks for a mini-league."""
     ml = db.query(MiniLeague).filter(MiniLeague.id == ml_id).first()
     if not ml:
@@ -172,7 +172,7 @@ def calculate_league_ranks(ml_id: int, db: Session = Depends(get_db)):
 
 
 @router.delete("/{ml_id}")
-def delete_mini_league(ml_id: int, user_id: int, db: Session = Depends(get_db)):
+def delete_mini_league(ml_id: int, user_id: int, db: Session = Depends(get_bound_db)):
     """Delete a mini-league (admin only)."""
     ml = db.query(MiniLeague).filter(MiniLeague.id == ml_id).first()
     if not ml:

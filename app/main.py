@@ -1,4 +1,5 @@
 """Fantasy Football Isle of Man - FastAPI Application."""
+import os
 from fastapi import FastAPI, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
@@ -7,7 +8,7 @@ from contextlib import asynccontextmanager
 from sqlalchemy.orm import Session
 import logging
 
-from app.database import init_db, engine, Base, get_db
+from app.database import init_db, engine, Base, get_db, get_bound_db, init_binds
 from app.scheduler import start_scheduler, shutdown_scheduler
 from app.routes import (
     players, teams, users, gameweeks, leaderboard, transfers,
@@ -25,8 +26,10 @@ async def lifespan(app: FastAPI):
     """Application lifespan - startup and shutdown."""
     logger.info("Initializing Fantasy Football IOM...")
     init_db()
+    init_binds()  # Configure FFIOM-DB binds for Player/Team/Gameweek/Fixture
     start_scheduler()
     logger.info("Fantasy Football IOM started.")
+    logger.info(f"FFIOM-DB source of truth: {os.environ.get('FFIOM_DB_PATH', '/home/eamon/FFIOM-DB/data/fantasy_iom.db')}")
 
     yield
 
@@ -75,7 +78,7 @@ app.include_router(h2h_bracket.router)
 
 
 @app.get("/api/dream-team/{gw_id}")
-async def get_dream_team_endpoint(gw_id: int, db: Session = Depends(get_db)):
+async def get_dream_team_endpoint(gw_id: int, db: Session = Depends(get_bound_db)):
     """Standalone Dream Team endpoint for the frontend.
 
     If a stored DreamTeam exists for the GW, returns it. Otherwise, computes
@@ -85,13 +88,22 @@ async def get_dream_team_endpoint(gw_id: int, db: Session = Depends(get_db)):
 
     Returns: {"players": [...], "total_points": N, "captain": {...}}
     """
+    from app.database import FfiomSessionLocal
     from app.models import (
-        DreamTeam, DreamTeamPlayer, PlayerGameweekPoints, Player, Gameweek,
+        DreamTeam, DreamTeamPlayer, PlayerGameweekPoints, Player, Gameweek, Team,
     )
 
     gw = db.query(Gameweek).filter(Gameweek.id == gw_id).first()
     if not gw:
         return {"players": [], "total_points": 0, "message": "Gameweek not found"}
+
+    # Pre-fetch players from FFIOM-DB for lookup (cross-DB join workaround)
+    ffiom_db = FfiomSessionLocal()
+    try:
+        players_by_id = {p.id: p for p in ffiom_db.query(Player).all()}
+        teams_by_id = {t.id: t for t in ffiom_db.query(Team).all()}
+    finally:
+        ffiom_db.close()
 
     dream_team = db.query(DreamTeam).filter(DreamTeam.gameweek_id == gw_id).first()
     if dream_team:
@@ -104,11 +116,11 @@ async def get_dream_team_endpoint(gw_id: int, db: Session = Depends(get_db)):
             "players": [
                 {
                     "player_id": m.player_id,
-                    "name": m.player.name if m.player else "Unknown",
-                    "team_name": m.player.team.name if m.player and m.player.team else "",
+                    "name": players_by_id.get(m.player_id).name if m.player_id in players_by_id else "Unknown",
+                    "team_name": teams_by_id.get(players_by_id.get(m.player_id).team_id).name if m.player_id in players_by_id and players_by_id[m.player_id].team_id in teams_by_id else "",
                     "position": m.position,
                     "points": m.points,
-                    "cost": m.player.price if m.player else 0,
+                    "cost": players_by_id.get(m.player_id).price if m.player_id in players_by_id else 0,
                     "formation_position": m.formation_position,
                     "is_captain": captain is not None and m.id == captain.id,
                 }
@@ -118,18 +130,16 @@ async def get_dream_team_endpoint(gw_id: int, db: Session = Depends(get_db)):
         }
 
     # Compute on the fly: top 1 GK, top 4 DEF, top 4 MID, top 2 FWD
-    rows = (
-        db.query(PlayerGameweekPoints, Player)
-        .join(Player, Player.id == PlayerGameweekPoints.player_id)
-        .filter(PlayerGameweekPoints.gameweek_id == gw_id)
-        .all()
-    )
-    if not rows:
+    pgps = db.query(PlayerGameweekPoints).filter(
+        PlayerGameweekPoints.gameweek_id == gw_id
+    ).all()
+    if not pgps:
         return {"players": [], "total_points": 0, "message": "No stats yet for this gameweek"}
 
     by_pos = {"GK": [], "DEF": [], "MID": [], "FWD": []}
-    for pgp, p in rows:
-        if p.position in by_pos:
+    for pgp in pgps:
+        p = players_by_id.get(pgp.player_id)
+        if p and p.position in by_pos:
             by_pos[p.position].append((pgp.total_points or 0, p))
 
     for pos in by_pos:
@@ -151,7 +161,7 @@ async def get_dream_team_endpoint(gw_id: int, db: Session = Depends(get_db)):
         out_players.append({
             "player_id": p.id,
             "name": p.name,
-            "team_name": p.team.name if p.team else "",
+            "team_name": teams_by_id.get(p.team_id).name if p.team_id in teams_by_id else "",
             "position": pos,
             "points": pts,
             "cost": p.price,
@@ -168,10 +178,11 @@ async def get_dream_team_endpoint(gw_id: int, db: Session = Depends(get_db)):
 
 
 @app.get("/api/stats/gameweek/{gw_id}")
-async def get_gw_stats(gw_id: int, db: Session = Depends(get_db)):
+async def get_gw_stats(gw_id: int, db: Session = Depends(get_bound_db)):
     """Per-gameweek summary stats: average score, highest score, top players."""
+    from app.database import FfiomSessionLocal
     from app.models import (
-        FantasyTeamHistory, Gameweek, PlayerGameweekPoints, Player,
+        FantasyTeamHistory, Gameweek, PlayerGameweekPoints, Player, Team,
     )
     gw = db.query(Gameweek).filter(Gameweek.id == gw_id).first()
     if not gw:
@@ -183,15 +194,18 @@ async def get_gw_stats(gw_id: int, db: Session = Depends(get_db)):
     avg = round(sum(h.points for h in histories) / len(histories), 1) if histories else 0
     high = max((h.points for h in histories), default=0)
 
+    # Pre-fetch players from FFIOM-DB for lookup (cross-DB join workaround)
+    ffiom_db = FfiomSessionLocal()
+    try:
+        players_by_id = {p.id: p for p in ffiom_db.query(Player).all()}
+        teams_by_id = {t.id: t for t in ffiom_db.query(Team).all()}
+    finally:
+        ffiom_db.close()
+
     # Top 5 player performers
-    rows = (
-        db.query(PlayerGameweekPoints, Player)
-        .join(Player, Player.id == PlayerGameweekPoints.player_id)
-        .filter(PlayerGameweekPoints.gameweek_id == gw_id)
-        .order_by(PlayerGameweekPoints.total_points.desc())
-        .limit(5)
-        .all()
-    )
+    pgps = db.query(PlayerGameweekPoints).filter(
+        PlayerGameweekPoints.gameweek_id == gw_id
+    ).order_by(PlayerGameweekPoints.total_points.desc()).limit(5).all()
 
     return {
         "gameweek_id": gw_id,
@@ -204,15 +218,15 @@ async def get_gw_stats(gw_id: int, db: Session = Depends(get_db)):
         "managers_played": len(histories),
         "top_players": [
             {
-                "player_id": p.id,
-                "name": p.name,
-                "team_name": p.team.name if p.team else "",
-                "position": p.position,
+                "player_id": pgp.player_id,
+                "name": players_by_id.get(pgp.player_id).name if pgp.player_id in players_by_id else "Unknown",
+                "team_name": teams_by_id.get(players_by_id.get(pgp.player_id).team_id).name if pgp.player_id in players_by_id and players_by_id[pgp.player_id].team_id in teams_by_id else "",
+                "position": players_by_id.get(pgp.player_id).position if pgp.player_id in players_by_id else "",
                 "points": pgp.total_points or 0,
                 "goals": pgp.goals_scored or 0,
                 "assists": pgp.assists or 0,
             }
-            for pgp, p in rows
+            for pgp in pgps
         ],
     }
 

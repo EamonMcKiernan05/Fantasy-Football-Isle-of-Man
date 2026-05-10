@@ -9,7 +9,7 @@ from sqlalchemy import func
 from datetime import datetime, timedelta
 from typing import Optional
 
-from app.database import get_db
+from app.database import get_db, get_bound_db
 from app.models import (
     FantasyTeam, Gameweek, FantasyTeamHistory, SquadPlayer, Player,
     GameweekStats, Transfer, PlayerGameweekPoints,
@@ -19,7 +19,7 @@ router = APIRouter(prefix="/api/gameweek-history", tags=["gameweek-history"])
 
 
 @router.get("/current-gw-info")
-def get_current_gw_info(db: Session = Depends(get_db)):
+def get_current_gw_info(db: Session = Depends(get_bound_db)):
     """Get current gameweek information including deadline.
 
     Returns current GW number, deadline, status, and countdown info.
@@ -58,7 +58,7 @@ def get_current_gw_info(db: Session = Depends(get_db)):
 
 
 @router.get("/deadline/{gameweek_id}")
-def _alias_deadline(gameweek_id: int, db: Session = Depends(get_db)):
+def _alias_deadline(gameweek_id: int, db: Session = Depends(get_bound_db)):
     """Alias kept early for route-ordering: see get_deadline_info."""
     return get_deadline_info(gameweek_id, db)
 
@@ -67,7 +67,7 @@ def _alias_deadline(gameweek_id: int, db: Session = Depends(get_db)):
 def _alias_transfer_history(
     team_id: int,
     gameweek_id: Optional[int] = Query(None),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_bound_db),
 ):
     """Alias kept early for route-ordering: see get_transfer_history."""
     return get_transfer_history(team_id, gameweek_id, db)
@@ -77,7 +77,7 @@ def _alias_transfer_history(
 def get_gameweek_breakdown(
     team_id: int,
     gameweek_id: int,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_bound_db),
 ):
     """Get detailed gameweek breakdown for a fantasy team.
 
@@ -194,7 +194,7 @@ def get_gameweek_breakdown(
 
 
 @router.get("/deadline/{gameweek_id}")
-def get_deadline_info(gameweek_id: int, db: Session = Depends(get_db)):
+def get_deadline_info(gameweek_id: int, db: Session = Depends(get_bound_db)):
     """Get deadline countdown information for a gameweek."""
     gw = db.query(Gameweek).filter(Gameweek.id == gameweek_id).first()
     if not gw:
@@ -219,7 +219,7 @@ def get_deadline_info(gameweek_id: int, db: Session = Depends(get_db)):
 def get_transfer_history(
     team_id: int,
     gameweek_id: Optional[int] = Query(None),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_bound_db),
 ):
     """Get transfer history for a fantasy team.
 

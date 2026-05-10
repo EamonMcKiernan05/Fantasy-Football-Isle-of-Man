@@ -5,7 +5,7 @@ from sqlalchemy import func
 from datetime import datetime
 from typing import Optional
 
-from app.database import get_db
+from app.database import get_db, get_bound_db
 from app.models import Fixture, Gameweek, Player, Team
 
 router = APIRouter(prefix="/api/fixtures", tags=["fixtures"])
@@ -15,7 +15,7 @@ router = APIRouter(prefix="/api/fixtures", tags=["fixtures"])
 def list_fixtures(
     gameweek_id: Optional[int] = Query(None, description="Filter by gameweek ID"),
     season: str = Query("2025-26", description="Season to filter by"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_bound_db),
 ):
     """List all fixtures, optionally filtered by gameweek."""
     query = db.query(Fixture).join(Gameweek).filter(Gameweek.season == season)
@@ -50,7 +50,7 @@ def list_fixtures(
 def get_player_fixtures(
     player_id: int,
     next_n: int = Query(5, description="Number of upcoming fixtures to return"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_bound_db),
 ):
     """Get upcoming and recent fixtures for a player's team.
 
@@ -109,7 +109,7 @@ def get_player_fixtures(
 
 
 @router.post("/calculate-difficulties")
-def calculate_fixture_difficulties(db: Session = Depends(get_db)):
+def calculate_fixture_difficulties(db: Session = Depends(get_bound_db)):
     """Calculate fixture difficulty ratings based on team strength.
 
     FPL-style difficulty ratings (1=easiest, 5=hardest) based on team
@@ -175,7 +175,7 @@ def calculate_fixture_difficulties(db: Session = Depends(get_db)):
 
 
 @router.get("/progress/{gameweek_id}")
-def get_gameweek_progress(gameweek_id: int, db: Session = Depends(get_db)):
+def get_gameweek_progress(gameweek_id: int, db: Session = Depends(get_bound_db)):
     """Get live scoring progress for a gameweek.
 
     Returns percentage of fixtures completed, used for progress bar display.
@@ -198,7 +198,7 @@ def get_gameweek_progress(gameweek_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/player-team-players/{team_id}")
-def get_team_players(team_id: int, db: Session = Depends(get_db)):
+def get_team_players(team_id: int, db: Session = Depends(get_bound_db)):
     """Get all players for a team with their fixture schedules."""
     players = (
         db.query(Player)

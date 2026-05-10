@@ -5,7 +5,8 @@ from datetime import datetime, timedelta
 from typing import Optional
 import json
 
-from app.database import get_db
+from app.database import get_db, get_bound_db
+from app.scheduler import sync_fixtures
 from app.models import (
     Gameweek, Fixture, Player, SquadPlayer, FantasyTeam,
     FantasyTeamHistory, PlayerGameweekPoints, User, Season,
@@ -27,7 +28,7 @@ router = APIRouter(prefix="/api/gameweeks", tags=["gameweeks"])
 @router.get("/")
 def list_gameweeks(
     season: str = "2025-26",
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_bound_db),
 ):
     """List all gameweeks for a season.
 
@@ -71,7 +72,7 @@ def list_gameweeks(
 
 
 @router.get("/current")
-def get_current_gameweek(db: Session = Depends(get_db)):
+def get_current_gameweek(db: Session = Depends(get_bound_db)):
     """Get the current open gameweek with deadline countdown."""
     from datetime import datetime, timezone
 
@@ -147,7 +148,7 @@ def _format_deadline(seconds: int) -> str:
 
 
 @router.get("/{gw_id}", response_model=GameweekResponse)
-def get_gameweek(gw_id: int, db: Session = Depends(get_db)):
+def get_gameweek(gw_id: int, db: Session = Depends(get_bound_db)):
     """Get a specific gameweek with fixtures."""
     gw = db.query(Gameweek).filter(Gameweek.id == gw_id).first()
     if not gw:
@@ -187,7 +188,7 @@ def create_gameweek(
     number: int,
     season: str = "2025-26",
     days_until_deadline: int = 3,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_bound_db),
 ):
     """Create a new gameweek."""
     existing = db.query(Gameweek).filter(
@@ -212,7 +213,7 @@ def create_gameweek(
 
 
 @router.post("/{gw_id}/simulate-results")
-def simulate_results(gw_id: int, db: Session = Depends(get_db)):
+def simulate_results(gw_id: int, db: Session = Depends(get_bound_db)):
     """Simulate fixture results (random scores for testing).
 
     Generates realistic scorelines based on team strengths.
@@ -253,7 +254,7 @@ def simulate_results(gw_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{gw_id}/close")
-def close_gameweek(gw_id: int, db: Session = Depends(get_db)):
+def close_gameweek(gw_id: int, db: Session = Depends(get_bound_db)):
     """Close a gameweek (mark deadline as passed)."""
     gw = db.query(Gameweek).filter(Gameweek.id == gw_id).first()
     if not gw:
@@ -269,7 +270,7 @@ def close_gameweek(gw_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{gw_id}/score")
-def score_gameweek(gw_id: int, db: Session = Depends(get_db)):
+def score_gameweek(gw_id: int, db: Session = Depends(get_bound_db)):
     """Score a gameweek - calculate points for all fantasy teams.
 
     Scoring:
@@ -317,7 +318,7 @@ def score_gameweek(gw_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{gw_id}/update-scores")
-def update_gameweek_scores(gw_id: int, db: Session = Depends(get_db)):
+def update_gameweek_scores(gw_id: int, db: Session = Depends(get_bound_db)):
     """Update scores for a gameweek without requiring it to be closed.
 
     This is used for live scoring when fixture results come in before
@@ -794,7 +795,7 @@ def _update_rollover_transfers(gw, db):
 @router.post("/simulate-and-score")
 def simulate_and_score(
     gw_id: int,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_bound_db),
 ):
     """Convenience endpoint: simulate results, close, calculate bonus, then score.
 
@@ -818,7 +819,7 @@ def simulate_and_score(
 
 
 @router.post("/{gw_id}/dream-team")
-def calculate_dream_team_endpoint(gw_id: int, db: Session = Depends(get_db)):
+def calculate_dream_team_endpoint(gw_id: int, db: Session = Depends(get_bound_db)):
     """Calculate the Dream Team for a gameweek.
 
     The Dream Team is the best 11 players by total points,
@@ -828,7 +829,7 @@ def calculate_dream_team_endpoint(gw_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{gw_id}/dream-team")
-def get_dream_team(gw_id: int, db: Session = Depends(get_db)):
+def get_dream_team(gw_id: int, db: Session = Depends(get_bound_db)):
     """Get the Dream Team for a gameweek."""
     dream_team = db.query(DreamTeam).filter(
         DreamTeam.gameweek_id == gw_id
@@ -939,3 +940,22 @@ def calculate_dream_team(gw_id: int, db: Session) -> dict:
         "total_points": total,
         "players_selected": len(top_10),
     }
+
+
+@router.post("/sync")
+def sync_gameweek_fixtures():
+    """Sync fixtures from FullTime API and update scores.
+
+    Fetches the latest fixture results from the FullTime API for all
+    IOM league divisions, updates fixtures in the database, and scores
+    any gameweeks with new results.
+    """
+    result = {"status": "started"}
+    try:
+        sync_fixtures()
+        result["status"] = "completed"
+        result["message"] = "Fixtures synced and scores updated"
+    except Exception as e:
+        result["status"] = "error"
+        result["message"] = str(e)
+    return result

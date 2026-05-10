@@ -10,7 +10,7 @@ from typing import Optional
 import random
 import json
 
-from app.database import get_db
+from app.database import get_db, get_bound_db
 from app.models import (
     League, Division, Team, Player, Gameweek, Fixture,
     User, FantasyTeam, SquadPlayer, MiniLeague, MiniLeagueMember,
@@ -23,7 +23,7 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
 @router.post("/seed/sample-data")
-def seed_sample_data(db: Session = Depends(get_db)):
+def seed_sample_data(db: Session = Depends(get_bound_db)):
     """Seed the database with sample IOM teams, players, and gameweeks.
 
     Creates sample data matching Isle of Man football structure.
@@ -193,7 +193,7 @@ def seed_sample_data(db: Session = Depends(get_db)):
 
 
 @router.post("/create-sample-users")
-def create_sample_users(db: Session = Depends(get_db)):
+def create_sample_users(db: Session = Depends(get_bound_db)):
     """Create sample users with fantasy teams for testing."""
     users_created = 0
     teams_created = 0
@@ -299,7 +299,7 @@ def create_sample_users(db: Session = Depends(get_db)):
 
 
 @router.post("/recalculate-ranks")
-def recalculate_ranks(db: Session = Depends(get_db)):
+def recalculate_ranks(db: Session = Depends(get_bound_db)):
     """Recalculate overall ranks for all fantasy teams."""
     teams = db.query(FantasyTeam).order_by(
         FantasyTeam.total_points.desc(),
@@ -314,7 +314,7 @@ def recalculate_ranks(db: Session = Depends(get_db)):
 
 
 @router.get("/stats")
-def get_admin_stats(db: Session = Depends(get_db)):
+def get_admin_stats(db: Session = Depends(get_bound_db)):
     """Get administrative statistics about the database."""
     return {
         "leagues": db.query(League).count(),

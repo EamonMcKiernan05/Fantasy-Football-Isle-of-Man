@@ -14,7 +14,7 @@ from sqlalchemy import desc
 from datetime import datetime
 from typing import Optional
 
-from app.database import get_db
+from app.database import get_db, get_bound_db
 from app.models import (
     FantasyTeam, SquadPlayer, Player, Gameweek, GameweekStats,
     FantasyTeamHistory, Chip, Transfer,
@@ -28,7 +28,7 @@ def get_team_notifications(
     team_id: int,
     limit: int = Query(20, description="Number of notifications to return"),
     unread_only: bool = Query(False, description="Only unread notifications"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_bound_db),
 ):
     """Get notifications for a fantasy team.
 
@@ -143,7 +143,7 @@ def get_team_notifications(
 def mark_notification_read(
     team_id: int,
     notification_id: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_bound_db),
 ):
     """Mark a notification as read."""
     ft = db.query(FantasyTeam).filter(FantasyTeam.id == team_id).first()
@@ -157,7 +157,7 @@ def mark_notification_read(
 
 
 @router.post("/team/{team_id}/mark-all-read")
-def mark_all_notifications_read(team_id: int, db: Session = Depends(get_db)):
+def mark_all_notifications_read(team_id: int, db: Session = Depends(get_bound_db)):
     """Mark all notifications as read."""
     ft = db.query(FantasyTeam).filter(FantasyTeam.id == team_id).first()
     if not ft:
@@ -172,7 +172,7 @@ def mark_all_notifications_read(team_id: int, db: Session = Depends(get_db)):
 @router.get("/upcoming-deadlines")
 def get_upcoming_deadlines(
     limit: int = Query(5, description="Number of upcoming deadlines"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_bound_db),
 ):
     """Get upcoming gameweek deadlines."""
     from datetime import datetime
