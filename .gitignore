@@ -2,5 +2,7 @@ venv/
 .env
 __pycache__/
 *.pyc
-# data/fantasy_iom.db.sqlite-journal  -- removed: DB is now tracked in git
 *.log
+*.db-shm
+*.db-wal
+data/fantasy_iom.db.current

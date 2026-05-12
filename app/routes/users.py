@@ -328,6 +328,9 @@ def register(user: UserCreate, db: Session = Depends(get_bound_db)):
 
     Creates an empty fantasy team (no squad players) which the user populates
     via the Transfers page (or via auto-pick).
+
+    DEPRECATED: Use /api/auth/register instead. This endpoint is kept for backward
+    compatibility with the existing frontend.
     """
     existing = db.query(User).filter(
         or_(User.username == user.username, User.email == user.email)
@@ -339,10 +342,15 @@ def register(user: UserCreate, db: Session = Depends(get_bound_db)):
         username=user.username,
         email=user.email,
         password_hash=hash_password(user.password),
+        email_verified=False,
+        display_name=user.username,
     )
     db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
+    db.flush()
+
+    # Create email identity
+    from app.auth_linking import create_email_identity
+    create_email_identity(db, new_user.id, user.email)
 
     team_name = (user.team_name or f"{user.username}'s Team").strip()
     ft = FantasyTeam(

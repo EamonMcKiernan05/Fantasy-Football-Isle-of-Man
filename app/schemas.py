@@ -12,14 +12,64 @@ class UserCreate(BaseModel):
     team_name: Optional[str] = None
 
 
+class LoginRequest(BaseModel):
+    username: str = Field(..., description="Username or email")
+    password: str = ...
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str = ...
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+
+
 class UserResponse(BaseModel):
     id: int
     username: str
     email: str
+    email_verified: bool = False
+    display_name: Optional[str] = None
+    profile_picture_url: Optional[str] = None
     created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
+
+
+# Account management schemas
+class UpdateProfileRequest(BaseModel):
+    display_name: Optional[str] = Field(None, max_length=100)
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(..., min_length=6)
+
+
+class LinkEmailPasswordRequest(BaseModel):
+    password: str = Field(..., min_length=6)
+
+
+class LinkedIdentityResponse(BaseModel):
+    id: int
+    provider: str
+    provider_id: str
+    provider_email: Optional[str] = None
+    is_primary: bool = True
+    created_at: Optional[datetime] = None
+
+
+class AccountResponse(BaseModel):
+    user: UserResponse
+    identities: List[LinkedIdentityResponse]
+
+
+class EmailVerificationRequest(BaseModel):
+    pass
 
 
 # Player schemas

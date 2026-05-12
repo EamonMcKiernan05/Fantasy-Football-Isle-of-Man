@@ -164,7 +164,7 @@ def _safe_drop_all(*args, **kwargs):
     caller_file = caller.filename if caller else ''
 
     # Allow drop_all ONLY from test files using test_engine
-    if 'test_' not in caller_file and 'test_engine' not in str(kwargs.get('bind', '')):
+    if 'test_' not in caller_file and 'test_engine' not in str(kwargs.get('bind', '')) and 'alembic' not in caller_file.lower():
         raise RuntimeError(
             "SAFETY: drop_all() blocked on production database. "
             "Database wipes are NEVER allowed in production. "

@@ -16,6 +16,8 @@ from app.routes import (
     fixtures, team_value, gameweek_history, captain_hints, admin,
     notifications, h2h_bracket,
 )
+from app.routes import auth as auth_routes
+from app.routes import account as account_routes
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -75,6 +77,10 @@ app.include_router(captain_hints.router)
 app.include_router(admin.router)
 app.include_router(notifications.router)
 app.include_router(h2h_bracket.router)
+
+# Auth routes (new)
+app.include_router(auth_routes.router)
+app.include_router(account_routes.router)
 
 
 @app.get("/api/dream-team/{gw_id}")

@@ -18,8 +18,9 @@ Key Rules:
 - Simplified scoring: goals, appearances, minutes, clean sheets, cards, own goals
 """
 from sqlalchemy import (
-    Column, Integer, String, Float, Boolean, ForeignKey,
-    DateTime, Date, Text, UniqueConstraint, CheckConstraint,
+   Column, Integer, String, Float, Boolean, ForeignKey,
+   DateTime, Date, Text, UniqueConstraint, CheckConstraint,
+   Index,
 )
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -221,10 +222,75 @@ class User(Base):
     username = Column(String(100), unique=True, nullable=False)
     email = Column(String(200), unique=True, nullable=False)
     password_hash = Column(String(256), nullable=False)
+    email_verified = Column(Boolean, default=False)
+    display_name = Column(String(100), nullable=True)
+    profile_picture_url = Column(String(500), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     fantasy_team = relationship("FantasyTeam", back_populates="user", uselist=False)
     transfers_history = relationship("Transfer", back_populates="user")
+    identities = relationship("AuthIdentity", back_populates="user", cascade="all, delete-orphan")
+
+
+class AuthIdentity(Base):
+    """Authentication identity linked to a user.
+
+    One user can have multiple identities (e.g., email+password and Google OAuth).
+    Provider values: "email", "google", etc.
+    """
+    __tablename__ = "auth_identities"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user = relationship("User", back_populates="identities")
+
+    provider = Column(String(20), nullable=False)  # "email", "google"
+    provider_id = Column(String(200), nullable=False)  # email address or Google sub
+    provider_email = Column(String(200), nullable=True)  # email from provider
+    provider_data = Column(Text, nullable=True)  # JSON: {name, picture, email_verified, ...}
+    is_primary = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("provider", "provider_id", name="uq_provider_identity"),
+        Index("idx_auth_identities_provider_email", "provider_email"),
+    )
+
+
+class RefreshToken(Base):
+    """Persistent refresh tokens stored as hashes.
+
+    Raw tokens are never stored — only SHA-256 hashes.
+    """
+    __tablename__ = "refresh_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    token_hash = Column(String(64), nullable=False)  # SHA-256 of the actual token
+    expires_at = Column(DateTime, nullable=False)
+    revoked = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    user_ip = Column(String(100), nullable=True)
+    user_agent = Column(String(500), nullable=True)
+
+    __table_args__ = (
+        Index("idx_refresh_tokens_user_revoked_expires", "user_id", "revoked", "expires_at"),
+    )
+
+
+class EmailVerificationToken(Base):
+    """Email verification tokens.
+
+    Tokens are hashed before storage. 24-hour expiry.
+    """
+    __tablename__ = "email_verification_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    token_hash = Column(String(64), nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    used = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class FantasyTeam(Base):
@@ -287,7 +353,7 @@ class FantasyTeam(Base):
     free_hit_backup = Column(Text, nullable=True)  # JSON backup of original squad
     free_hit_revert_gw = Column(Integer, nullable=True)  # GW number to revert to
 
-   # Supported club (FPL-style: user selects a club for club leaderboards)
+    # Supported club (FPL-style: user selects a club for club leaderboards)
     supported_club_id = Column(Integer, ForeignKey("teams.id"), nullable=True)
     supported_club = relationship("Team", foreign_keys=[supported_club_id])
 
