@@ -689,7 +689,6 @@ class TestAPIEndpoints:
         assert "access_token" in data
         assert data["team"]["name"]
 
-    @pytest.mark.xfail(reason="Legacy /api/users/register route - deprecated, use /api/auth/register")
     def test_register_duplicate_username(self, client):
         client.post("/api/users/register", json={
             "username": "testuser",
