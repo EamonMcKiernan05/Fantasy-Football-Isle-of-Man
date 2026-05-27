@@ -19,11 +19,11 @@ Key Rules:
 """
 from sqlalchemy import (
    Column, Integer, String, Float, Boolean, ForeignKey,
-   DateTime, Date, Text, UniqueConstraint, CheckConstraint,
+   DateTime, Date, Text, Time, UniqueConstraint, CheckConstraint,
    Index,
 )
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, time
 
 from app.database import Base
 
@@ -212,6 +212,10 @@ class Fixture(Base):
     away_difficulty = Column(Integer, default=3)
 
     played = Column(Boolean, default=False)
+
+    # Per-fixture result sync
+    kickoff_time = Column(Time, nullable=True)
+    result_check_attempts = Column(Integer, default=0)
 
 
 class User(Base):
