@@ -1,5 +1,5 @@
 #!/bin/bash
-cd ~/Fantasy-Football-Isle-of-Man
+cd /home/Fantasy-Football-Isle-of-Man
 source venv/bin/activate
 pkill -f "python run.py" 2>/dev/null
 sleep 1
